@@ -1661,13 +1661,13 @@ private fun HourlyOutlookStrip(
       verticalArrangement = Arrangement.spacedBy(if (isShortHeight) 4.dp else 6.dp),
     ) {
       AutoShrinkSingleLineText(
-        text = "24-HOUR FORECAST (EVERY 2 HOURS)",
+        text = "24-HOUR FORECAST",
         style =
           MaterialTheme.typography.labelSmall.copy(
             fontSize = 18.sp,
             lineHeight = 20.sp,
           ),
-        color = plasma.primaryAccent,
+        color = plasma.primaryTextColor,
         minFontSize = 12.sp,
         textAlign = TextAlign.Center,
         modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
