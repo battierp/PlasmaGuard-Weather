@@ -55,7 +55,7 @@ jobs:
           fi
 
       - name: Run unit tests & build APK
-        run: gradle :app:testDebugUnitTest :app:assembleDebug --no-daemon
+        run: gradle :app:testDebugUnitTest :app:assembleDebug -PversionCode=${{ github.run_number }} --no-daemon
 
       - name: Package downloadable APK
         run: |

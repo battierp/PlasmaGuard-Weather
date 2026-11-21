@@ -92,6 +92,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Constraints
@@ -982,7 +983,6 @@ private fun ScreensaverWeatherCanvas(
               HourlyOutlookStrip(
                 slots = snapshot.hourlySlots.take(12),
                 use24Hour = settings.use24HourClock,
-                snapshot = snapshot,
                 plasma = plasma,
                 isCompact = false,
                 isShortHeight = isShortLandscape,
@@ -1045,7 +1045,6 @@ private fun ScreensaverWeatherCanvas(
               HourlyOutlookStrip(
                 slots = snapshot.hourlySlots.take(12),
                 use24Hour = settings.use24HourClock,
-                snapshot = snapshot,
                 plasma = plasma,
                 isCompact = false,
                 isShortHeight = isShortLandscape,
@@ -1101,7 +1100,6 @@ private fun ScreensaverWeatherCanvas(
                 HourlyOutlookStrip(
                   slots = snapshot.hourlySlots.take(12),
                   use24Hour = settings.use24HourClock,
-                  snapshot = snapshot,
                   plasma = plasma,
                   isCompact = true,
                   isShortHeight = false,
@@ -1164,7 +1162,6 @@ private fun ScreensaverWeatherCanvas(
                 HourlyOutlookStrip(
                   slots = snapshot.hourlySlots.take(12),
                   use24Hour = settings.use24HourClock,
-                  snapshot = snapshot,
                   plasma = plasma,
                   isCompact = true,
                   isShortHeight = false,
@@ -1340,7 +1337,7 @@ private fun HeroWeatherClusterContent(
   val cityMinSp = ((if (isCompact) 17f else 22f) * scaleFactor).sp
   val dateSp = ((if (isCompact) 19f else 26f) * scaleFactor).sp
   val dateMinSp = ((if (isCompact) 14f else 18f) * scaleFactor).sp
-  val glyphDp = ((if (isCompact) 44f else 66f) * scaleFactor).dp
+  val glyphDp = ((if (isCompact) 40f else 56f) * scaleFactor).dp
   val condSp = ((if (isCompact) 19f else 26f) * scaleFactor).sp
   val condMinSp = ((if (isCompact) 13f else 18f) * scaleFactor).sp
   val tempSp = ((if (isCompact) 54f else 94f) * scaleFactor).sp
@@ -1589,7 +1586,6 @@ private fun HeroWeatherClusterContent(
 private fun HourlyOutlookStrip(
   slots: List<HourlySlot>,
   use24Hour: Boolean,
-  snapshot: WeatherSnapshot,
   plasma: PlasmaShieldState,
   isCompact: Boolean,
   isShortHeight: Boolean,
@@ -1599,7 +1595,7 @@ private fun HourlyOutlookStrip(
   val useTwoRows = isCompact && slots.size > 6
   val cardCompact = isCompact || isShortHeight
   val cardSpacing = if (useTwoRows) 4.dp else 3.dp
-  val cardHorizontalPadding = 2.dp
+  val cardHorizontalPadding = 1.dp
 
   val formattedSlots =
     remember(slots, use24Hour) {
@@ -1664,32 +1660,18 @@ private fun HourlyOutlookStrip(
           ),
       verticalArrangement = Arrangement.spacedBy(if (isShortHeight) 4.dp else 6.dp),
     ) {
-      Row(
+      AutoShrinkSingleLineText(
+        text = "24-HOUR FORECAST (EVERY 2 HOURS)",
+        style =
+          MaterialTheme.typography.labelSmall.copy(
+            fontSize = 18.sp,
+            lineHeight = 20.sp,
+          ),
+        color = plasma.primaryAccent,
+        minFontSize = 12.sp,
+        textAlign = TextAlign.Center,
         modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-      ) {
-        AutoShrinkSingleLineText(
-          text = "24-HOUR FORECAST (EVERY 2 HOURS)",
-          style =
-            MaterialTheme.typography.labelSmall.copy(
-              fontSize = 18.sp,
-              lineHeight = 20.sp,
-            ),
-          color = plasma.primaryAccent,
-          minFontSize = 12.sp,
-          modifier = Modifier.weight(1f, fill = false),
-        )
-        Text(
-          text = snapshot.tempUnit.symbol,
-          style =
-            MaterialTheme.typography.labelSmall.copy(
-              fontSize = 18.sp,
-              lineHeight = 20.sp,
-            ),
-          color = plasma.secondaryTextColor,
-        )
-      }
+      )
 
       BoxWithConstraints(
         modifier =
@@ -1742,6 +1724,26 @@ private fun HourlyOutlookStrip(
             lineHeight = (uniformCondSize.value + 2f).sp,
           )
 
+        val cardInnerWidthDp = with(density) { cardInnerWidthPx.toDp() }
+        val widthBasedGlyphDp = (cardInnerWidthDp - 2.dp).coerceAtLeast(18.dp)
+        val hourlyGlyphSize =
+          if (expandHeight && !useTwoRows && constraints.hasBoundedHeight) {
+            val availableHeightDp = with(density) { constraints.maxHeight.toDp() }
+            val cardVertPadDp = if (isShortHeight) 6.dp else 8.dp
+            val textBudgetDp =
+              with(density) {
+                uniformTimeStyle.lineHeight.toDp() +
+                  uniformTempStyle.lineHeight.toDp() +
+                  uniformCondStyle.lineHeight.toDp()
+              }
+            val spacingBudgetDp = 8.dp
+            val heightBasedGlyphDp =
+              (availableHeightDp - cardVertPadDp - textBudgetDp - spacingBudgetDp).coerceAtLeast(18.dp)
+            minOf(widthBasedGlyphDp, heightBasedGlyphDp)
+          } else {
+            widthBasedGlyphDp.coerceAtMost(if (useTwoRows) 34.dp else 44.dp)
+          }
+
         if (useTwoRows) {
           val topRow = slots.take(6)
           val bottomRow = slots.drop(6).take(6)
@@ -1761,6 +1763,7 @@ private fun HourlyOutlookStrip(
                   timeStyle = uniformTimeStyle,
                   tempStyle = uniformTempStyle,
                   condStyle = uniformCondStyle,
+                  glyphSize = hourlyGlyphSize,
                   isCompact = true,
                   fillVertical = false,
                   modifier = Modifier.weight(1f),
@@ -1782,6 +1785,7 @@ private fun HourlyOutlookStrip(
                   timeStyle = uniformTimeStyle,
                   tempStyle = uniformTempStyle,
                   condStyle = uniformCondStyle,
+                  glyphSize = hourlyGlyphSize,
                   isCompact = true,
                   fillVertical = false,
                   modifier = Modifier.weight(1f),
@@ -1807,6 +1811,7 @@ private fun HourlyOutlookStrip(
                 timeStyle = uniformTimeStyle,
                 tempStyle = uniformTempStyle,
                 condStyle = uniformCondStyle,
+                glyphSize = hourlyGlyphSize,
                 isCompact = isShortHeight,
                 fillVertical = expandHeight,
                 modifier =
@@ -1831,6 +1836,7 @@ private fun HourlySlotCard(
   timeStyle: TextStyle,
   tempStyle: TextStyle,
   condStyle: TextStyle,
+  glyphSize: androidx.compose.ui.unit.Dp,
   isCompact: Boolean,
   fillVertical: Boolean,
   modifier: Modifier = Modifier,
@@ -1844,7 +1850,7 @@ private fun HourlySlotCard(
     Column(
       modifier =
         Modifier.then(if (fillVertical) Modifier.fillMaxSize() else Modifier)
-          .padding(horizontal = 2.dp, vertical = if (isCompact) 4.dp else 6.dp),
+          .padding(horizontal = 1.dp, vertical = if (isCompact) 3.dp else 4.dp),
       horizontalAlignment = Alignment.CenterHorizontally,
       verticalArrangement =
         if (fillVertical) Arrangement.SpaceBetween
@@ -1861,7 +1867,7 @@ private fun HourlySlotCard(
       WeatherGlyph(
         condition = slot.condition,
         plasmaAccent = plasma.primaryAccent,
-        size = if (isCompact) 18.dp else 26.dp,
+        size = glyphSize,
       )
       Text(
         text = tempLabel,
@@ -1895,7 +1901,7 @@ private fun MultiDayForecastPanel(
 ) {
   val cardCompact = isCompact || isShortHeight
   val cardSpacing = 4.dp
-  val cardHorizontalPadding = 2.dp
+  val cardHorizontalPadding = 1.dp
   val expandBoost = if (expandedVertical) 1.18f else 1f
 
   val dayLabels = remember(days) { days.map { it.dayLabel } }
@@ -1953,7 +1959,8 @@ private fun MultiDayForecastPanel(
             lineHeight = 22.sp,
           ),
         color = plasma.secondaryAccent,
-        modifier = Modifier.padding(horizontal = 4.dp),
+        textAlign = TextAlign.Center,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
       )
 
       BoxWithConstraints(
@@ -2019,6 +2026,32 @@ private fun MultiDayForecastPanel(
             lineHeight = (uniformLowSize.value + 2f).sp,
           )
 
+        val cardInnerWidthDp = with(density) { cardInnerWidthPx.toDp() }
+        val widthBasedGlyphDp = (cardInnerWidthDp - 2.dp).coerceAtLeast(20.dp)
+        val dailyGlyphSize =
+          if (fillVertical && constraints.hasBoundedHeight) {
+            val availableHeightDp = with(density) { constraints.maxHeight.toDp() }
+            val cardVertPadDp =
+              when {
+                cardCompact -> 8.dp
+                expandedVertical -> 24.dp
+                else -> 12.dp
+              }
+            val textBudgetDp =
+              with(density) {
+                uniformDayStyle.lineHeight.toDp() +
+                  uniformCondStyle.lineHeight.toDp() +
+                  uniformHighStyle.lineHeight.toDp() +
+                  uniformLowStyle.lineHeight.toDp()
+              }
+            val spacingBudgetDp = if (expandedVertical) 24.dp else 14.dp
+            val heightBasedGlyphDp =
+              (availableHeightDp - cardVertPadDp - textBudgetDp - spacingBudgetDp).coerceAtLeast(22.dp)
+            minOf(widthBasedGlyphDp, heightBasedGlyphDp)
+          } else {
+            widthBasedGlyphDp.coerceAtMost(38.dp)
+          }
+
         Row(
           modifier =
             Modifier.fillMaxWidth()
@@ -2033,6 +2066,7 @@ private fun MultiDayForecastPanel(
               condStyle = uniformCondStyle,
               highStyle = uniformHighStyle,
               lowStyle = uniformLowStyle,
+              glyphSize = dailyGlyphSize,
               isCompact = cardCompact,
               fillVertical = fillVertical,
               expandedVertical = expandedVertical,
@@ -2055,6 +2089,7 @@ private fun DailyForecastCard(
   condStyle: TextStyle,
   highStyle: TextStyle,
   lowStyle: TextStyle,
+  glyphSize: androidx.compose.ui.unit.Dp,
   isCompact: Boolean,
   fillVertical: Boolean,
   expandedVertical: Boolean,
@@ -2071,12 +2106,12 @@ private fun DailyForecastCard(
         Modifier.fillMaxWidth()
           .then(if (fillVertical) Modifier.fillMaxHeight() else Modifier)
           .padding(
-            horizontal = 2.dp,
+            horizontal = 1.dp,
             vertical =
               when {
-                isCompact -> 5.dp
-                expandedVertical -> 16.dp
-                else -> 8.dp
+                isCompact -> 4.dp
+                expandedVertical -> 12.dp
+                else -> 6.dp
               },
           ),
       horizontalAlignment = Alignment.CenterHorizontally,
@@ -2100,12 +2135,7 @@ private fun DailyForecastCard(
         WeatherGlyph(
           condition = day.condition,
           plasmaAccent = plasma.primaryAccent,
-          size =
-            when {
-              isCompact -> 20.dp
-              expandedVertical -> 40.dp
-              else -> 30.dp
-            },
+          size = glyphSize,
         )
         Text(
           text = day.condition.shortLabel,
@@ -2188,6 +2218,7 @@ private fun AutoShrinkSingleLineText(
   modifier: Modifier = Modifier,
   minFontSize: TextUnit = 10.sp,
   fontWeight: FontWeight? = null,
+  textAlign: TextAlign? = null,
 ) {
   var multiplier by remember(text, style.fontSize) { mutableFloatStateOf(1f) }
   val scaledFontSize = (style.fontSize.value * multiplier).coerceAtLeast(minFontSize.value).sp
@@ -2207,6 +2238,7 @@ private fun AutoShrinkSingleLineText(
         fontWeight = fontWeight ?: style.fontWeight,
       ),
     color = color,
+    textAlign = textAlign,
     maxLines = 1,
     softWrap = false,
     overflow = TextOverflow.Ellipsis,
