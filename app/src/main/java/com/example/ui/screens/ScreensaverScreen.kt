@@ -949,7 +949,7 @@ private fun ScreensaverWeatherCanvas(
                 verticalAlignment = Alignment.CenterVertically,
               ) {
                 Box(
-                  modifier = Modifier.weight(0.86f).padding(horizontal = 4.dp),
+                  modifier = Modifier.weight(0.90f).padding(start = 2.dp, end = 10.dp),
                   contentAlignment = Alignment.Center,
                 ) {
                   HeroWeatherCluster(
@@ -1336,24 +1336,24 @@ private fun HeroWeatherClusterContent(
   detailsMaxWidthFraction: Float,
   modifier: Modifier = Modifier,
 ) {
-  val citySp = ((if (isCompact) 25f else 37f) * scaleFactor).sp
-  val cityMinSp = ((if (isCompact) 18f else 24f) * scaleFactor).sp
-  val dateSp = ((if (isCompact) 21f else 30f) * scaleFactor).sp
-  val dateMinSp = ((if (isCompact) 15f else 20f) * scaleFactor).sp
-  val glyphDp = ((if (isCompact) 48f else 76f) * scaleFactor).dp
-  val condSp = ((if (isCompact) 21f else 31f) * scaleFactor).sp
-  val condMinSp = ((if (isCompact) 14f else 20f) * scaleFactor).sp
-  val tempSp = ((if (isCompact) 54f else 98f) * scaleFactor).sp
-  val unitSp = ((if (isCompact) 30f else 42f) * scaleFactor).sp
-  val detailsSp = ((if (isCompact) 21f else 30f) * scaleFactor).sp
-  val detailsMinSp = ((if (isCompact) 14f else 20f) * scaleFactor).sp
-  val locIconDp = ((if (isCompact) 20f else 30f) * scaleFactor).dp
-  val detailIconDp = ((if (isCompact) 18f else 26f) * scaleFactor).dp
+  val citySp = ((if (isCompact) 24f else 34f) * scaleFactor).sp
+  val cityMinSp = ((if (isCompact) 17f else 22f) * scaleFactor).sp
+  val dateSp = ((if (isCompact) 19f else 26f) * scaleFactor).sp
+  val dateMinSp = ((if (isCompact) 14f else 18f) * scaleFactor).sp
+  val glyphDp = ((if (isCompact) 44f else 66f) * scaleFactor).dp
+  val condSp = ((if (isCompact) 19f else 26f) * scaleFactor).sp
+  val condMinSp = ((if (isCompact) 13f else 18f) * scaleFactor).sp
+  val tempSp = ((if (isCompact) 54f else 94f) * scaleFactor).sp
+  val unitSp = ((if (isCompact) 26f else 38f) * scaleFactor).sp
+  val detailsSp = ((if (isCompact) 17f else 22f) * scaleFactor).sp
+  val detailsMinSp = ((if (isCompact) 12f else 15f) * scaleFactor).sp
+  val locIconDp = ((if (isCompact) 18f else 27f) * scaleFactor).dp
+  val detailIconDp = ((if (isCompact) 15f else 20f) * scaleFactor).dp
 
   Column(
     modifier = modifier,
     horizontalAlignment = Alignment.CenterHorizontally,
-    verticalArrangement = Arrangement.spacedBy((if (isCompact) 4f else 8f * scaleFactor).dp),
+    verticalArrangement = Arrangement.spacedBy((if (isCompact) 2f else 4f * scaleFactor).dp),
   ) {
     // Location alone on top line | Day/Date + Clock below with matching fonts
     Column(
@@ -1415,14 +1415,14 @@ private fun HeroWeatherClusterContent(
       )
     }
 
-    // Weather Graphic + Condition Label directly underneath beside Bold Hero Temperature
+    // Weather Graphic + Condition Label directly underneath beside Bold Hero Temperature (F/C in degree spot)
     Row(
       verticalAlignment = Alignment.CenterVertically,
-      horizontalArrangement = Arrangement.spacedBy((if (isCompact) 10f else 14f * scaleFactor).dp),
+      horizontalArrangement = Arrangement.spacedBy((if (isCompact) 8f else 10f * scaleFactor).dp),
     ) {
       Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(2.dp),
+        verticalArrangement = Arrangement.spacedBy(1.dp),
       ) {
         WeatherGlyph(
           condition = snapshot.currentCondition,
@@ -1434,23 +1434,23 @@ private fun HeroWeatherClusterContent(
           style =
             MaterialTheme.typography.titleMedium.copy(
               fontSize = condSp,
-              lineHeight = (condSp.value + 3f).sp,
+              lineHeight = (condSp.value + 2f).sp,
             ),
           color = plasma.primaryAccent,
           minFontSize = condMinSp,
           modifier =
-            Modifier.widthIn(max = ((if (isCompact) 140f else 170f) * scaleFactor).dp)
+            Modifier.widthIn(max = ((if (isCompact) 124f else 136f) * scaleFactor).dp)
               .testTag("current_condition_text"),
         )
       }
 
       Row(verticalAlignment = Alignment.Top) {
         Text(
-          text = "${snapshot.currentTemp}°",
+          text = "${snapshot.currentTemp}",
           style =
             MaterialTheme.typography.displayLarge.copy(
               fontSize = tempSp,
-              lineHeight = (tempSp.value + 2f).sp,
+              lineHeight = tempSp,
             ),
           color = plasma.primaryTextColor,
           maxLines = 1,
@@ -1461,10 +1461,10 @@ private fun HeroWeatherClusterContent(
           style =
             MaterialTheme.typography.headlineMedium.copy(
               fontSize = unitSp,
-              lineHeight = (unitSp.value + 3f).sp,
+              lineHeight = (unitSp.value + 2f).sp,
             ),
           color = plasma.primaryAccent,
-          modifier = Modifier.padding(top = ((if (isCompact) 4f else 8f) * scaleFactor).dp, start = 3.dp),
+          modifier = Modifier.padding(top = ((if (isCompact) 4f else 8f) * scaleFactor).dp, start = 2.dp),
         )
       }
     }
@@ -1529,7 +1529,7 @@ private fun HeroWeatherClusterContent(
       Column(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy((if (isCompact) 2f else 4f * scaleFactor).dp),
+        verticalArrangement = Arrangement.spacedBy((if (isCompact) 1f else 2f * scaleFactor).dp),
       ) {
         Text(
           text = feelsRangeText,
