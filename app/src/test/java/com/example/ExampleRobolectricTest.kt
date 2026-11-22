@@ -10,7 +10,11 @@ import com.example.data.model.SavedLocation
 import com.example.data.model.TextColorOption
 import com.example.data.model.WeatherCondition
 import com.example.data.model.WindSpeedUnit
+import com.example.data.model.aqiCategoryLabel
+import com.example.data.model.degreesToCompass
+import com.example.data.model.precipCategoryLabel
 import com.example.data.repository.deriveMeteorologicalAdvisories
+import com.example.ui.components.HourlyCubeFace
 import com.example.ui.components.computeClockwisePerimeterOffset
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -161,5 +165,32 @@ class ExampleRobolectricTest {
 
     assertEquals(20.0, wrappedTopRight.first, 0.0001)
     assertEquals(-10.0, wrappedTopRight.second, 0.0001)
+  }
+
+  @Test
+  fun `rotating cube cycles four forecast modes and maps wind compass, precip, and aqi labels`() {
+    assertEquals(
+      listOf(
+        "24-HOUR FORECAST",
+        "12-HOUR PRECIPITATION",
+        "12-HOUR WIND SPEED",
+        "12-HOUR AIR QUALITY",
+      ),
+      HourlyCubeFace.entries.map { it.title },
+    )
+
+    assertEquals("N", degreesToCompass(0))
+    assertEquals("NE", degreesToCompass(45))
+    assertEquals("SW", degreesToCompass(225))
+    assertEquals("N", degreesToCompass(360))
+
+    assertEquals("Dry", precipCategoryLabel(5))
+    assertEquals("Chance", precipCategoryLabel(30))
+    assertEquals("High", precipCategoryLabel(85))
+
+    assertEquals("Good", aqiCategoryLabel(28))
+    assertEquals("Mod", aqiCategoryLabel(75))
+    assertEquals("Poor", aqiCategoryLabel(165))
+    assertEquals("N/A", aqiCategoryLabel(null))
   }
 }

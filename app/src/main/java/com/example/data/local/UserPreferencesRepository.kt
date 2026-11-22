@@ -60,7 +60,7 @@ class UserPreferencesRepository(
     val SHOW_SEVERE_WEATHER_ALERTS = booleanPreferencesKey("show_severe_weather_alerts")
     val SAVED_LOCATIONS_JSON = stringPreferencesKey("saved_locations_v1_json")
     val AUTO_ROTATE_LOCATIONS = booleanPreferencesKey("auto_rotate_locations")
-    val CACHED_WEATHER_JSON = stringPreferencesKey("cached_weather_v5_json")
+    val CACHED_WEATHER_JSON = stringPreferencesKey("cached_weather_v6_json")
   }
 
   private val snapshotAdapter by lazy { moshi.adapter(WeatherSnapshot::class.java) }

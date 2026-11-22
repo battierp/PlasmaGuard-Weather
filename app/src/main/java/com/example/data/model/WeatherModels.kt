@@ -106,6 +106,17 @@ data class HourlySlot(
 )
 
 @JsonClass(generateAdapter = true)
+data class HourlyMetricSlot(
+  val hour24: Int,
+  val minute: Int,
+  val precipProbability: Int,
+  val windSpeed: Int,
+  val windGusts: Int = 0,
+  val windDirectionDeg: Int = 0,
+  val usAqi: Int? = null,
+)
+
+@JsonClass(generateAdapter = true)
 data class DailyForecast(
   val dayLabel: String,
   val condition: WeatherCondition,
@@ -130,6 +141,7 @@ data class WeatherSnapshot(
   val tempUnit: TemperatureUnit,
   val currentCondition: WeatherCondition,
   val hourlySlots: List<HourlySlot>,
+  val next12Hours: List<HourlyMetricSlot> = emptyList(),
   val dailyForecasts: List<DailyForecast>,
   val alerts: List<WeatherAlert> = emptyList(),
   val fetchedAtEpochMs: Long,
@@ -148,3 +160,29 @@ data class CitySearchResult(
       .distinct()
       .joinToString(", ")
 }
+
+fun degreesToCompass(degrees: Int): String {
+  val normalized = ((degrees % 360) + 360) % 360
+  val directions = listOf("N", "NE", "E", "SE", "S", "SW", "W", "NW")
+  return directions[((normalized + 22) / 45) % 8]
+}
+
+fun precipCategoryLabel(percent: Int): String =
+  when {
+    percent >= 75 -> "High"
+    percent >= 50 -> "Likely"
+    percent >= 25 -> "Chance"
+    percent >= 10 -> "Slight"
+    else -> "Dry"
+  }
+
+fun aqiCategoryLabel(usAqi: Int?): String =
+  when {
+    usAqi == null -> "N/A"
+    usAqi <= 50 -> "Good"
+    usAqi <= 100 -> "Mod"
+    usAqi <= 150 -> "Sens"
+    usAqi <= 200 -> "Poor"
+    usAqi <= 300 -> "VPoor"
+    else -> "Haz"
+  }

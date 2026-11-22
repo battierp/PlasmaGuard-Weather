@@ -3,6 +3,7 @@ package com.example.data.remote
 import com.example.data.model.GeoJsResponseDto
 import com.example.data.model.GeocodingResponseDto
 import com.example.data.model.NwsAlertsResponseDto
+import com.example.data.model.OpenMeteoAirQualityResponse
 import com.example.data.model.OpenMeteoForecastResponse
 import com.squareup.moshi.Moshi
 import java.util.concurrent.TimeUnit
@@ -22,7 +23,8 @@ interface OpenMeteoForecastApi {
     current: String =
       "temperature_2m,apparent_temperature,relative_humidity_2m,is_day,weather_code,wind_speed_10m,wind_gusts_10m",
     @Query("hourly")
-    hourly: String = "temperature_2m,weather_code,precipitation_probability,is_day",
+    hourly: String =
+      "temperature_2m,weather_code,precipitation_probability,is_day,wind_speed_10m,wind_direction_10m,wind_gusts_10m",
     @Query("daily")
     daily: String =
       "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max",
@@ -31,6 +33,17 @@ interface OpenMeteoForecastApi {
     @Query("timezone") timezone: String = "auto",
     @Query("forecast_days") forecastDays: Int = 8,
   ): OpenMeteoForecastResponse
+}
+
+interface OpenMeteoAirQualityApi {
+  @GET("v1/air-quality")
+  suspend fun getAirQuality(
+    @Query("latitude") latitude: Double,
+    @Query("longitude") longitude: Double,
+    @Query("hourly") hourly: String = "us_aqi,pm2_5",
+    @Query("timezone") timezone: String = "auto",
+    @Query("forecast_days") forecastDays: Int = 2,
+  ): OpenMeteoAirQualityResponse
 }
 
 interface OpenMeteoGeocodingApi {
@@ -74,6 +87,15 @@ object NetworkModule {
       .addConverterFactory(MoshiConverterFactory.create(moshi))
       .build()
       .create(OpenMeteoForecastApi::class.java)
+  }
+
+  val airQualityApi: OpenMeteoAirQualityApi by lazy {
+    Retrofit.Builder()
+      .baseUrl("https://air-quality-api.open-meteo.com/")
+      .client(okHttpClient)
+      .addConverterFactory(MoshiConverterFactory.create(moshi))
+      .build()
+      .create(OpenMeteoAirQualityApi::class.java)
   }
 
   val geocodingApi: OpenMeteoGeocodingApi by lazy {

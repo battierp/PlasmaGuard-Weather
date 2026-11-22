@@ -29,6 +29,21 @@ data class HourlyWeatherDto(
   @Json(name = "weather_code") val weatherCode: List<Int>?,
   @Json(name = "precipitation_probability") val precipitationProbability: List<Int?>?,
   @Json(name = "is_day") val isDay: List<Int>?,
+  @Json(name = "wind_speed_10m") val windSpeed10m: List<Double?>? = null,
+  @Json(name = "wind_direction_10m") val windDirection10m: List<Int?>? = null,
+  @Json(name = "wind_gusts_10m") val windGusts10m: List<Double?>? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class OpenMeteoAirQualityResponse(
+  @Json(name = "hourly") val hourly: AirQualityHourlyDto?,
+)
+
+@JsonClass(generateAdapter = true)
+data class AirQualityHourlyDto(
+  @Json(name = "time") val time: List<String>?,
+  @Json(name = "us_aqi") val usAqi: List<Int?>? = null,
+  @Json(name = "pm2_5") val pm25: List<Double?>? = null,
 )
 
 @JsonClass(generateAdapter = true)

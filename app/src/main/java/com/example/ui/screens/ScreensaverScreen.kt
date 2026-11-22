@@ -103,7 +103,6 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.local.UserSettings
 import com.example.data.model.DailyForecast
-import com.example.data.model.HourlySlot
 import com.example.data.model.TemperatureUnit
 import com.example.data.model.TextColorOption
 import com.example.data.model.WeatherAlert
@@ -113,6 +112,7 @@ import com.example.ui.ClockDisplay
 import com.example.ui.ScreensaverViewModel
 import com.example.ui.WeatherUiState
 import com.example.ui.components.PlasmaShieldState
+import com.example.ui.components.RotatingHourlyCubePanel
 import com.example.ui.components.WeatherGlyph
 import com.example.ui.components.rememberPlasmaShieldState
 import com.example.ui.theme.BrightCoral
@@ -1067,8 +1067,8 @@ private fun ScreensaverWeatherCanvas(
 
               Spacer(modifier = Modifier.height(if (isShortLandscape) 6.dp else 10.dp))
 
-              HourlyOutlookStrip(
-                slots = snapshot.hourlySlots.take(12),
+              RotatingHourlyCubePanel(
+                snapshot = snapshot,
                 use24Hour = settings.use24HourClock,
                 plasma = plasma,
                 isCompact = false,
@@ -1129,8 +1129,8 @@ private fun ScreensaverWeatherCanvas(
 
               Spacer(modifier = Modifier.height(if (isShortLandscape) 6.dp else 10.dp))
 
-              HourlyOutlookStrip(
-                slots = snapshot.hourlySlots.take(12),
+              RotatingHourlyCubePanel(
+                snapshot = snapshot,
                 use24Hour = settings.use24HourClock,
                 plasma = plasma,
                 isCompact = false,
@@ -1184,8 +1184,8 @@ private fun ScreensaverWeatherCanvas(
                   modifier = Modifier.fillMaxWidth(),
                 )
 
-                HourlyOutlookStrip(
-                  slots = snapshot.hourlySlots.take(12),
+                RotatingHourlyCubePanel(
+                  snapshot = snapshot,
                   use24Hour = settings.use24HourClock,
                   plasma = plasma,
                   isCompact = true,
@@ -1246,8 +1246,8 @@ private fun ScreensaverWeatherCanvas(
                   )
                 }
 
-                HourlyOutlookStrip(
-                  slots = snapshot.hourlySlots.take(12),
+                RotatingHourlyCubePanel(
+                  snapshot = snapshot,
                   use24Hour = settings.use24HourClock,
                   plasma = plasma,
                   isCompact = true,
@@ -1670,313 +1670,6 @@ private fun HeroWeatherClusterContent(
 }
 
 @Composable
-private fun HourlyOutlookStrip(
-  slots: List<HourlySlot>,
-  use24Hour: Boolean,
-  plasma: PlasmaShieldState,
-  isCompact: Boolean,
-  isShortHeight: Boolean,
-  expandHeight: Boolean,
-  modifier: Modifier = Modifier,
-) {
-  val useTwoRows = isCompact && slots.size > 6
-  val cardCompact = isCompact || isShortHeight
-  val cardSpacing = if (useTwoRows) 4.dp else 3.dp
-  val cardHorizontalPadding = 1.dp
-
-  val formattedSlots =
-    remember(slots, use24Hour) {
-      slots.map { slot ->
-        val timeLabel =
-          if (slot.isNow) {
-            "Now"
-          } else if (use24Hour) {
-            String.format(Locale.getDefault(), "%02d:%02d", slot.hour24, slot.minute)
-          } else {
-            val h12 =
-              when {
-                slot.hour24 == 0 -> 12
-                slot.hour24 > 12 -> slot.hour24 - 12
-                else -> slot.hour24
-              }
-            val amPm = if (slot.hour24 < 12) "AM" else "PM"
-            "$h12 $amPm"
-          }
-        val condLabel =
-          if (slot.precipProbability >= 20) "${slot.condition.shortLabel} ${slot.precipProbability}%"
-          else slot.condition.shortLabel
-        Triple(timeLabel, "${slot.temperature}°", condLabel)
-      }
-    }
-
-  val timeLabels = remember(formattedSlots) { formattedSlots.map { it.first } }
-  val tempLabels = remember(formattedSlots) { formattedSlots.map { it.second } }
-  val condLabels = remember(formattedSlots) { formattedSlots.map { it.third } }
-
-  val baseTimeStyle =
-    MaterialTheme.typography.labelLarge.copy(
-      fontSize = if (cardCompact) 16.sp else 18.sp,
-      lineHeight = if (cardCompact) 18.sp else 20.sp,
-    )
-  val baseTempStyle =
-    MaterialTheme.typography.headlineMedium.copy(
-      fontFamily = SpaceGroteskFontFamily,
-      fontSize = if (cardCompact) 22.sp else 33.sp,
-      lineHeight = if (cardCompact) 24.sp else 35.sp,
-      letterSpacing = (-0.5).sp,
-    )
-  val baseCondStyle =
-    MaterialTheme.typography.labelSmall.copy(
-      fontSize = if (cardCompact) 13.sp else 15.sp,
-      lineHeight = if (cardCompact) 15.sp else 17.sp,
-      letterSpacing = (-0.2).sp,
-    )
-
-  Surface(
-    modifier = modifier.testTag("hourly_forecast_section"),
-    shape = RoundedCornerShape(20.dp),
-    color = Color.Transparent,
-    border = BorderStroke(1.dp, plasma.primaryAccent.copy(alpha = 0.22f)),
-  ) {
-    Column(
-      modifier =
-        Modifier.then(if (expandHeight) Modifier.fillMaxSize() else Modifier)
-          .padding(
-            horizontal = 8.dp,
-            vertical = if (cardCompact) 6.dp else 8.dp,
-          ),
-      verticalArrangement = Arrangement.spacedBy(if (isShortHeight) 4.dp else 6.dp),
-    ) {
-      AutoShrinkSingleLineText(
-        text = "24-HOUR FORECAST",
-        style =
-          MaterialTheme.typography.labelSmall.copy(
-            fontSize = 18.sp,
-            lineHeight = 20.sp,
-          ),
-        color = plasma.primaryTextColor,
-        minFontSize = 12.sp,
-        textAlign = TextAlign.Center,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
-      )
-
-      BoxWithConstraints(
-        modifier =
-          Modifier.fillMaxWidth()
-            .then(if (expandHeight && !useTwoRows) Modifier.weight(1f) else Modifier),
-      ) {
-        val density = LocalDensity.current
-        val cardsPerRow = if (useTwoRows) 6 else slots.size.coerceAtLeast(1)
-        val gapPx = with(density) { cardSpacing.roundToPx() }
-        val innerPadPx = with(density) { (cardHorizontalPadding * 2).roundToPx() }
-        val cardInnerWidthPx =
-          ((constraints.maxWidth - gapPx * (cardsPerRow - 1)) / cardsPerRow - innerPadPx)
-            .coerceAtLeast(1)
-
-        val uniformTimeSize =
-          rememberUniformSingleLineFontSize(
-            texts = timeLabels,
-            style = baseTimeStyle,
-            maxWidthPx = cardInnerWidthPx,
-            minFontSize = 10.sp,
-          )
-        val uniformTempSize =
-          rememberUniformSingleLineFontSize(
-            texts = tempLabels,
-            style = baseTempStyle,
-            maxWidthPx = cardInnerWidthPx,
-            minFontSize = if (cardCompact) 14.sp else 20.sp,
-          )
-        val uniformCondSize =
-          rememberUniformSingleLineFontSize(
-            texts = condLabels,
-            style = baseCondStyle,
-            maxWidthPx = cardInnerWidthPx,
-            minFontSize = 8.5.sp,
-          )
-
-        val uniformTimeStyle =
-          baseTimeStyle.copy(
-            fontSize = uniformTimeSize,
-            lineHeight = (uniformTimeSize.value + 2f).sp,
-          )
-        val uniformTempStyle =
-          baseTempStyle.copy(
-            fontSize = uniformTempSize,
-            lineHeight = (uniformTempSize.value + 2f).sp,
-          )
-        val uniformCondStyle =
-          baseCondStyle.copy(
-            fontSize = uniformCondSize,
-            lineHeight = (uniformCondSize.value + 2f).sp,
-          )
-
-        val cardInnerWidthDp = with(density) { cardInnerWidthPx.toDp() }
-        val widthBasedGlyphDp = (cardInnerWidthDp - 2.dp).coerceAtLeast(18.dp)
-        val hourlyGlyphSize =
-          if (expandHeight && !useTwoRows && constraints.hasBoundedHeight) {
-            val availableHeightDp = with(density) { constraints.maxHeight.toDp() }
-            val cardVertPadDp = if (isShortHeight) 6.dp else 8.dp
-            val textBudgetDp =
-              with(density) {
-                uniformTimeStyle.lineHeight.toDp() +
-                  uniformTempStyle.lineHeight.toDp() +
-                  uniformCondStyle.lineHeight.toDp()
-              }
-            val spacingBudgetDp = 8.dp
-            val heightBasedGlyphDp =
-              (availableHeightDp - cardVertPadDp - textBudgetDp - spacingBudgetDp).coerceAtLeast(18.dp)
-            minOf(widthBasedGlyphDp, heightBasedGlyphDp)
-          } else {
-            widthBasedGlyphDp.coerceAtMost(if (useTwoRows) 34.dp else 44.dp)
-          }
-
-        if (useTwoRows) {
-          val topRow = slots.take(6)
-          val bottomRow = slots.drop(6).take(6)
-          Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(
-              modifier = Modifier.fillMaxWidth(),
-              horizontalArrangement = Arrangement.spacedBy(cardSpacing),
-            ) {
-              topRow.forEachIndexed { idx, slot ->
-                val labels = formattedSlots[idx]
-                HourlySlotCard(
-                  timeLabel = labels.first,
-                  tempLabel = labels.second,
-                  condLabel = labels.third,
-                  slot = slot,
-                  plasma = plasma,
-                  timeStyle = uniformTimeStyle,
-                  tempStyle = uniformTempStyle,
-                  condStyle = uniformCondStyle,
-                  glyphSize = hourlyGlyphSize,
-                  isCompact = true,
-                  fillVertical = false,
-                  modifier = Modifier.weight(1f),
-                )
-              }
-            }
-            Row(
-              modifier = Modifier.fillMaxWidth(),
-              horizontalArrangement = Arrangement.spacedBy(cardSpacing),
-            ) {
-              bottomRow.forEachIndexed { idx, slot ->
-                val labels = formattedSlots[6 + idx]
-                HourlySlotCard(
-                  timeLabel = labels.first,
-                  tempLabel = labels.second,
-                  condLabel = labels.third,
-                  slot = slot,
-                  plasma = plasma,
-                  timeStyle = uniformTimeStyle,
-                  tempStyle = uniformTempStyle,
-                  condStyle = uniformCondStyle,
-                  glyphSize = hourlyGlyphSize,
-                  isCompact = true,
-                  fillVertical = false,
-                  modifier = Modifier.weight(1f),
-                )
-              }
-            }
-          }
-        } else {
-          Row(
-            modifier =
-              Modifier.fillMaxWidth()
-                .then(if (expandHeight) Modifier.fillMaxHeight() else Modifier),
-            horizontalArrangement = Arrangement.spacedBy(cardSpacing),
-          ) {
-            slots.forEachIndexed { idx, slot ->
-              val labels = formattedSlots[idx]
-              HourlySlotCard(
-                timeLabel = labels.first,
-                tempLabel = labels.second,
-                condLabel = labels.third,
-                slot = slot,
-                plasma = plasma,
-                timeStyle = uniformTimeStyle,
-                tempStyle = uniformTempStyle,
-                condStyle = uniformCondStyle,
-                glyphSize = hourlyGlyphSize,
-                isCompact = isShortHeight,
-                fillVertical = expandHeight,
-                modifier =
-                  Modifier.weight(1f)
-                    .then(if (expandHeight) Modifier.fillMaxHeight() else Modifier),
-              )
-            }
-          }
-        }
-      }
-    }
-  }
-}
-
-@Composable
-private fun HourlySlotCard(
-  timeLabel: String,
-  tempLabel: String,
-  condLabel: String,
-  slot: HourlySlot,
-  plasma: PlasmaShieldState,
-  timeStyle: TextStyle,
-  tempStyle: TextStyle,
-  condStyle: TextStyle,
-  glyphSize: androidx.compose.ui.unit.Dp,
-  isCompact: Boolean,
-  fillVertical: Boolean,
-  modifier: Modifier = Modifier,
-) {
-  Surface(
-    modifier = modifier,
-    shape = RoundedCornerShape(14.dp),
-    color = Color.Transparent,
-    border = BorderStroke(width = 1.dp, color = plasma.secondaryTextColor.copy(alpha = 0.16f)),
-  ) {
-    Column(
-      modifier =
-        Modifier.then(if (fillVertical) Modifier.fillMaxSize() else Modifier)
-          .padding(horizontal = 1.dp, vertical = if (isCompact) 3.dp else 4.dp),
-      horizontalAlignment = Alignment.CenterHorizontally,
-      verticalArrangement =
-        if (fillVertical) Arrangement.SpaceBetween
-        else Arrangement.spacedBy(if (isCompact) 2.dp else 3.dp),
-    ) {
-      Text(
-        text = timeLabel,
-        style = timeStyle,
-        color = if (slot.isNow) plasma.primaryAccent else plasma.secondaryTextColor,
-        maxLines = 1,
-        softWrap = false,
-        overflow = TextOverflow.Ellipsis,
-      )
-      WeatherGlyph(
-        condition = slot.condition,
-        plasmaAccent = plasma.primaryAccent,
-        size = glyphSize,
-      )
-      Text(
-        text = tempLabel,
-        style = tempStyle,
-        color = plasma.primaryTextColor,
-        maxLines = 1,
-        softWrap = false,
-        overflow = TextOverflow.Ellipsis,
-      )
-      Text(
-        text = condLabel,
-        style = condStyle,
-        color = if (slot.precipProbability >= 30) plasma.primaryAccent else plasma.secondaryTextColor,
-        maxLines = 1,
-        softWrap = false,
-        overflow = TextOverflow.Ellipsis,
-      )
-    }
-  }
-}
-
-@Composable
 private fun MultiDayForecastPanel(
   days: List<DailyForecast>,
   plasma: PlasmaShieldState,
@@ -2260,7 +1953,7 @@ private fun DailyForecastCard(
 }
 
 @Composable
-private fun rememberUniformSingleLineFontSize(
+internal fun rememberUniformSingleLineFontSize(
   texts: List<String>,
   style: TextStyle,
   maxWidthPx: Int,
@@ -2298,7 +1991,7 @@ private fun rememberUniformSingleLineFontSize(
 }
 
 @Composable
-private fun AutoShrinkSingleLineText(
+internal fun AutoShrinkSingleLineText(
   text: String,
   style: TextStyle,
   color: Color,

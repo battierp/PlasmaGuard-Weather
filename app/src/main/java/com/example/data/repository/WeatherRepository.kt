@@ -5,7 +5,9 @@ import com.example.data.local.UserPreferencesRepository
 import com.example.data.local.UserSettings
 import com.example.data.model.CitySearchResult
 import com.example.data.model.DailyForecast
+import com.example.data.model.HourlyMetricSlot
 import com.example.data.model.HourlySlot
+import com.example.data.model.OpenMeteoAirQualityResponse
 import com.example.data.model.OpenMeteoForecastResponse
 import com.example.data.model.WeatherAlert
 import com.example.data.model.WeatherCondition
@@ -52,7 +54,7 @@ class WeatherRepository(
           }
 
         val windUnit = activeSettings.windSpeedUnit
-        val (response, nwsAlerts) =
+        val (forecastPair, airQuality) =
           coroutineScope {
             val forecastDeferred = async {
               NetworkModule.forecastApi.getForecast(
@@ -69,10 +71,19 @@ class WeatherRepository(
                 emptyList()
               }
             }
-            forecastDeferred.await() to alertsDeferred.await()
+            val airQualityDeferred = async {
+              runCatching {
+                NetworkModule.airQualityApi.getAirQuality(
+                  latitude = activeSettings.latitude,
+                  longitude = activeSettings.longitude,
+                )
+              }.getOrNull()
+            }
+            (forecastDeferred.await() to alertsDeferred.await()) to airQualityDeferred.await()
           }
 
-        val snapshot = mapToSnapshot(response, activeSettings, windUnit, nwsAlerts)
+        val (response, nwsAlerts) = forecastPair
+        val snapshot = mapToSnapshot(response, airQuality, activeSettings, windUnit, nwsAlerts)
         prefsRepo.saveCachedWeather(snapshot)
         Result.success(snapshot)
       } catch (e: Exception) {
@@ -147,6 +158,7 @@ class WeatherRepository(
 
   private fun mapToSnapshot(
     response: OpenMeteoForecastResponse,
+    airQuality: OpenMeteoAirQualityResponse?,
     settings: UserSettings,
     windUnit: WindSpeedUnit,
     nwsAlerts: List<WeatherAlert>,
@@ -162,6 +174,18 @@ class WeatherRepository(
     val hourlyCodes = hourlyDto?.weatherCode.orEmpty()
     val hourlyPrecip = hourlyDto?.precipitationProbability.orEmpty()
     val hourlyIsDay = hourlyDto?.isDay.orEmpty()
+    val hourlyWindSpeed = hourlyDto?.windSpeed10m.orEmpty()
+    val hourlyWindDir = hourlyDto?.windDirection10m.orEmpty()
+    val hourlyWindGusts = hourlyDto?.windGusts10m.orEmpty()
+
+    val aqiByTime: Map<String, Int?> =
+      buildMap {
+        val aqTimes = airQuality?.hourly?.time.orEmpty()
+        val aqValues = airQuality?.hourly?.usAqi.orEmpty()
+        aqTimes.forEachIndexed { idx, timeKey ->
+          put(timeKey, aqValues.getOrNull(idx))
+        }
+      }
 
     val currentTimeStr = current.time.orEmpty()
     val (_, currentMinute) = parseHourMinute(currentTimeStr)
@@ -193,6 +217,34 @@ class WeatherRepository(
           )
         )
         offset += 2
+      }
+    }
+
+    val windSpeedNow = current.windSpeed10m?.roundToInt() ?: 0
+    val windGustsNow = current.windGusts10m?.roundToInt() ?: 0
+    val startIdx12h = (currentHourIdx + 1).coerceAtMost((hourlyTimes.size - 1).coerceAtLeast(0))
+    val next12Hours = buildList {
+      var offset = 0
+      while (size < 12 && (startIdx12h + offset) < hourlyTimes.size) {
+        val i = startIdx12h + offset
+        val timeStr = hourlyTimes[i]
+        val (hour24, minute) = parseHourMinute(timeStr)
+        val precip = hourlyPrecip.getOrNull(i) ?: 0
+        val wSpeed = hourlyWindSpeed.getOrNull(i)?.roundToInt() ?: windSpeedNow
+        val wGusts = hourlyWindGusts.getOrNull(i)?.roundToInt() ?: windGustsNow
+        val wDir = hourlyWindDir.getOrNull(i) ?: 0
+        add(
+          HourlyMetricSlot(
+            hour24 = hour24,
+            minute = minute,
+            precipProbability = precip.coerceIn(0, 100),
+            windSpeed = wSpeed.coerceAtLeast(0),
+            windGusts = wGusts.coerceAtLeast(0),
+            windDirectionDeg = wDir,
+            usAqi = aqiByTime[timeStr],
+          )
+        )
+        offset += 1
       }
     }
 
@@ -263,6 +315,7 @@ class WeatherRepository(
       tempUnit = settings.temperatureUnit,
       currentCondition = currentCondition,
       hourlySlots = hourlySlots,
+      next12Hours = next12Hours,
       dailyForecasts = dailyForecasts,
       alerts = resolvedAlerts,
       fetchedAtEpochMs = System.currentTimeMillis(),
