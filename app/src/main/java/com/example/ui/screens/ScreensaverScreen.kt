@@ -107,6 +107,7 @@ import com.example.data.model.HourlySlot
 import com.example.data.model.TemperatureUnit
 import com.example.data.model.TextColorOption
 import com.example.data.model.WeatherAlert
+import com.example.data.model.WeatherCondition
 import com.example.data.model.WeatherSnapshot
 import com.example.ui.ClockDisplay
 import com.example.ui.ScreensaverViewModel
@@ -292,7 +293,10 @@ fun ScreensaverRoute(
       } else {
         when (val state = weatherState) {
           is WeatherUiState.Loading -> {
-            LoadingWeatherStage(cityName = settings.cityName, plasma = plasma)
+            LoadingWeatherStage(
+              cityName = settings.cityName.takeIf { settings.hasExplicitLocation },
+              plasma = plasma,
+            )
           }
 
           is WeatherUiState.Error -> {
@@ -466,19 +470,99 @@ fun ScreensaverRoute(
 }
 
 @Composable
-private fun LoadingWeatherStage(cityName: String, plasma: PlasmaShieldState) {
-  Box(modifier = Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
+private fun LoadingWeatherStage(cityName: String?, plasma: PlasmaShieldState) {
+  BoxWithConstraints(
+    modifier =
+      Modifier.fillMaxSize()
+        .background(Color.Black)
+        .padding(horizontal = 24.dp, vertical = 20.dp)
+        .testTag("loading_weather_stage"),
+    contentAlignment = Alignment.Center,
+  ) {
+    val isCompact = maxWidth < 560.dp
+    val sideGlyphDp = if (isCompact) 30.dp else 44.dp
+    val midGlyphDp = if (isCompact) 36.dp else 52.dp
+    val centerGlyphDp = if (isCompact) 48.dp else 70.dp
+    val titleSp = if (isCompact) 28.sp else 42.sp
+    val statusSp = if (isCompact) 15.sp else 20.sp
+
     Column(
       horizontalAlignment = Alignment.CenterHorizontally,
-      verticalArrangement = Arrangement.spacedBy(16.dp),
-      modifier = Modifier.offset(x = plasma.primaryOffsetX, y = plasma.primaryOffsetY),
+      verticalArrangement = Arrangement.spacedBy(if (isCompact) 14.dp else 20.dp),
+      modifier =
+        Modifier.fillMaxWidth()
+          .offset(x = plasma.primaryOffsetX, y = plasma.primaryOffsetY),
     ) {
-      CircularProgressIndicator(color = plasma.primaryAccent, strokeWidth = 3.dp)
-      Text(
-        text = "Syncing Google-model forecast for $cityName...",
-        style = MaterialTheme.typography.titleMedium.copy(fontSize = 24.sp, lineHeight = 30.sp),
+      Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(if (isCompact) 10.dp else 18.dp),
+      ) {
+        WeatherGlyph(
+          condition = WeatherCondition.SUNNY,
+          plasmaAccent = plasma.primaryAccent,
+          size = sideGlyphDp,
+        )
+        WeatherGlyph(
+          condition = WeatherCondition.RAINY,
+          plasmaAccent = plasma.primaryAccent,
+          size = midGlyphDp,
+        )
+        WeatherGlyph(
+          condition = WeatherCondition.PARTLY_CLOUDY,
+          plasmaAccent = plasma.primaryAccent,
+          size = centerGlyphDp,
+        )
+        WeatherGlyph(
+          condition = WeatherCondition.SNOWY,
+          plasmaAccent = plasma.primaryAccent,
+          size = midGlyphDp,
+        )
+        WeatherGlyph(
+          condition = WeatherCondition.CLEAR_NIGHT,
+          plasmaAccent = plasma.primaryAccent,
+          size = sideGlyphDp,
+        )
+      }
+
+      AutoShrinkSingleLineText(
+        text = "PlasmaGuard Weather",
+        style =
+          MaterialTheme.typography.displaySmall.copy(
+            fontFamily = SpaceGroteskFontFamily,
+            fontWeight = FontWeight.Bold,
+            fontSize = titleSp,
+            lineHeight = (titleSp.value + 6f).sp,
+            letterSpacing = (-0.5).sp,
+          ),
         color = plasma.primaryTextColor,
+        minFontSize = 20.sp,
+        textAlign = TextAlign.Center,
+        modifier = Modifier.fillMaxWidth().testTag("loading_brand_title"),
       )
+
+      Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+      ) {
+        CircularProgressIndicator(
+          modifier = Modifier.size(if (isCompact) 16.dp else 20.dp),
+          color = plasma.primaryAccent,
+          strokeWidth = 2.5.dp,
+        )
+        Text(
+          text =
+            if (!cityName.isNullOrBlank()) "Loading forecast for $cityName..."
+            else "Loading live weather...",
+          style =
+            MaterialTheme.typography.bodyLarge.copy(
+              fontSize = statusSp,
+              lineHeight = (statusSp.value + 4f).sp,
+            ),
+          color = plasma.secondaryTextColor,
+          maxLines = 1,
+          overflow = TextOverflow.Ellipsis,
+        )
+      }
     }
   }
 }
@@ -629,7 +713,10 @@ private fun TvPreviewPhoneStage(
             Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
               when (weatherState) {
                 is WeatherUiState.Loading ->
-                  LoadingWeatherStage(cityName = settings.cityName, plasma = plasma)
+                  LoadingWeatherStage(
+                    cityName = settings.cityName.takeIf { settings.hasExplicitLocation },
+                    plasma = plasma,
+                  )
                 is WeatherUiState.Error ->
                   ErrorWeatherStage(
                     message = weatherState.message,
