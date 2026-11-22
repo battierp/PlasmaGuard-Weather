@@ -11,6 +11,7 @@ import com.example.data.model.TextColorOption
 import com.example.data.model.WeatherCondition
 import com.example.data.model.WindSpeedUnit
 import com.example.data.repository.deriveMeteorologicalAdvisories
+import com.example.ui.components.computeClockwisePerimeterOffset
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -61,15 +62,14 @@ class ExampleRobolectricTest {
   }
 
   @Test
-  fun `drift intensity includes fastest at twice the speed of fast`() {
+  fun `drift intensity exposes slow, medium, fast, and fastest at 1x, 2x, 4x, and 6x speeds`() {
     assertEquals(
       listOf("Slow", "Medium", "Fast", "Fastest"),
       DriftIntensity.entries.map { it.label },
     )
     assertEquals(
-      DriftIntensity.WIDE.speedMultiplier * 2f,
-      DriftIntensity.FASTEST.speedMultiplier,
-      0.0001f,
+      listOf(1.0f, 2.0f, 4.0f, 6.0f),
+      DriftIntensity.entries.map { it.speedMultiplier },
     )
   }
 
@@ -130,5 +130,36 @@ class ExampleRobolectricTest {
     assertEquals("Severe Thunderstorm Warning", severe[0].event)
     assertEquals("Heavy Rain Advisory", severe[1].event)
     assertEquals("High Wind Advisory", severe[2].event)
+  }
+
+  @Test
+  fun `clockwise perimeter drift hugs edges from top-right to bottom-right to bottom-left to top-left`() {
+    val maxX = 20.0
+    val maxY = 10.0
+    // Perimeter = 2*(40 + 20) = 120:
+    // 0.0..20.0 (0..1/6): right edge (+20, -10) -> (+20, +10)
+    // 20..60 (1/6..3/6): bottom edge (+20, +10) -> (-20, +10)
+    // 60..80 (3/6..4/6): left edge (-20, +10) -> (-20, -10)
+    // 80..120 (4/6..1.0): top edge (-20, -10) -> (+20, -10)
+    val topRight = computeClockwisePerimeterOffset(0.0, maxX, maxY)
+    val bottomRight = computeClockwisePerimeterOffset(20.0 / 120.0, maxX, maxY)
+    val bottomLeft = computeClockwisePerimeterOffset(60.0 / 120.0, maxX, maxY)
+    val topLeft = computeClockwisePerimeterOffset(80.0 / 120.0, maxX, maxY)
+    val wrappedTopRight = computeClockwisePerimeterOffset(1.0, maxX, maxY)
+
+    assertEquals(20.0, topRight.first, 0.0001)
+    assertEquals(-10.0, topRight.second, 0.0001)
+
+    assertEquals(20.0, bottomRight.first, 0.0001)
+    assertEquals(10.0, bottomRight.second, 0.0001)
+
+    assertEquals(-20.0, bottomLeft.first, 0.0001)
+    assertEquals(10.0, bottomLeft.second, 0.0001)
+
+    assertEquals(-20.0, topLeft.first, 0.0001)
+    assertEquals(-10.0, topLeft.second, 0.0001)
+
+    assertEquals(20.0, wrappedTopRight.first, 0.0001)
+    assertEquals(-10.0, wrappedTopRight.second, 0.0001)
   }
 }

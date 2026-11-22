@@ -27,8 +27,7 @@ import com.example.ui.theme.SeafoamTeal
 import com.example.ui.theme.SoftAmethyst
 import com.example.ui.theme.SoftFrostText
 import kotlin.math.PI
-import kotlin.math.abs
-import kotlin.math.cos
+import kotlin.math.hypot
 import kotlin.math.sin
 
 data class PlasmaShieldState(
@@ -53,13 +52,48 @@ private val BrightTextSpectrum =
 
 private const val RAINBOW_MS_PER_COLOR = 60_000L
 
+internal fun computeClockwisePerimeterOffset(
+  progress: Double,
+  maxX: Double,
+  maxY: Double,
+): Pair<Double, Double> {
+  val safeMaxX = maxX.coerceAtLeast(0.0)
+  val safeMaxY = maxY.coerceAtLeast(0.0)
+  val horizontalEdge = 2.0 * safeMaxX
+  val verticalEdge = 2.0 * safeMaxY
+  val totalPerimeter = 2.0 * (horizontalEdge + verticalEdge)
+  if (totalPerimeter <= 0.0) return 0.0 to 0.0
+
+  val wrapped = ((progress % 1.0) + 1.0) % 1.0
+  val distance = wrapped * totalPerimeter
+
+  return when {
+    distance < verticalEdge -> {
+      // Right edge: top-right (+maxX, -maxY) -> bottom-right (+maxX, +maxY)
+      safeMaxX to (-safeMaxY + distance)
+    }
+    distance < verticalEdge + horizontalEdge -> {
+      // Bottom edge: bottom-right (+maxX, +maxY) -> bottom-left (-maxX, +maxY)
+      (safeMaxX - (distance - verticalEdge)) to safeMaxY
+    }
+    distance < verticalEdge + horizontalEdge + verticalEdge -> {
+      // Left edge: bottom-left (-maxX, +maxY) -> top-left (-maxX, -maxY)
+      -safeMaxX to (safeMaxY - (distance - verticalEdge - horizontalEdge))
+    }
+    else -> {
+      // Top edge: top-left (-maxX, -maxY) -> top-right (+maxX, -maxY)
+      (-safeMaxX + (distance - verticalEdge - horizontalEdge - verticalEdge)) to -safeMaxY
+    }
+  }
+}
+
 @Composable
 fun rememberPlasmaShieldState(
   driftIntensity: DriftIntensity,
   textColorOption: TextColorOption,
 ): PlasmaShieldState {
   var elapsedMs by remember { mutableLongStateOf(0L) }
-  var driftPhaseSec by remember { mutableDoubleStateOf(0.0) }
+  var perimeterProgress by remember { mutableDoubleStateOf(0.0) }
   var bounceX by remember { mutableDoubleStateOf(0.0) }
   var bounceY by remember { mutableDoubleStateOf(0.0) }
   var bounceColorIndex by remember { mutableIntStateOf(0) }
@@ -78,14 +112,13 @@ fun rememberPlasmaShieldState(
         val deltaSec = ((frameTime - lastFrame).coerceIn(0L, 250L)) / 1000.0
         lastFrame = frameTime
         elapsedMs = (frameTime - startFrame).coerceAtLeast(0L)
-        driftPhaseSec += deltaSec * currentSpeedMultiplier
+
+        val maxX = currentMaxDp.toDouble().coerceAtLeast(1.0)
+        val maxY = (currentMaxDp * 0.65).coerceAtLeast(1.0)
+        val speedX = (maxX * 4.0 / 40.0) * currentSpeedMultiplier
+        val speedY = (maxY * 4.0 / 53.0) * currentSpeedMultiplier
 
         if (currentOption == TextColorOption.RAINBOW_BOUNCE) {
-          val maxX = currentMaxDp.toDouble().coerceAtLeast(1.0)
-          val maxY = (currentMaxDp * 0.65).coerceAtLeast(1.0)
-          val speedX = (maxX * 4.0 / 40.0) * currentSpeedMultiplier
-          val speedY = (maxY * 4.0 / 53.0) * currentSpeedMultiplier
-
           var nextX = bounceX + vxSign * speedX * deltaSec
           var nextY = bounceY + vySign * speedY * deltaSec
           var hitBorder = false
@@ -116,29 +149,31 @@ fun rememberPlasmaShieldState(
             bounceColorIndex = (bounceColorIndex + 1) % BrightTextSpectrum.size
           }
         } else {
-          // Keep bounce coordinates synced to current Lissajous position so switching modes feels seamless
-          val maxX = currentMaxDp.toDouble()
-          val maxY = currentMaxDp * 0.65
-          bounceX = sin(driftPhaseSec * (2.0 * PI / 53.0)) * maxX
-          bounceY = cos(driftPhaseSec * (2.0 * PI / 85.0) + 0.7) * maxY
-          vxSign = if (cos(driftPhaseSec * (2.0 * PI / 53.0)) >= 0.0) 1.0 else -1.0
-          vySign = if (-sin(driftPhaseSec * (2.0 * PI / 85.0) + 0.7) >= 0.0) 1.0 else -1.0
+          val totalPerimeter = 4.0 * maxX + 4.0 * maxY
+          val perimeterSpeedDpPerSec = hypot(speedX, speedY)
+          perimeterProgress =
+            ((perimeterProgress + (perimeterSpeedDpPerSec * deltaSec) / totalPerimeter) % 1.0 + 1.0) % 1.0
+          val (edgeX, edgeY) = computeClockwisePerimeterOffset(perimeterProgress, maxX, maxY)
+          bounceX = edgeX
+          bounceY = edgeY
         }
       }
     }
   }
 
   val tSec = elapsedMs / 1000.0
-  val dSec = driftPhaseSec
-  val maxDp = driftIntensity.maxOffsetDp
+  val maxX = driftIntensity.maxOffsetDp.toDouble()
+  val maxY = driftIntensity.maxOffsetDp * 0.65
 
-  // Pinball straight-line border bounce for Rainbow Bounce; smooth Lissajous orbit otherwise
-  val primaryX =
-    if (textColorOption == TextColorOption.RAINBOW_BOUNCE) bounceX.toFloat().dp
-    else (sin(dSec * (2.0 * PI / 53.0)) * maxDp).toFloat().dp
-  val primaryY =
-    if (textColorOption == TextColorOption.RAINBOW_BOUNCE) bounceY.toFloat().dp
-    else (cos(dSec * (2.0 * PI / 85.0) + 0.7) * (maxDp * 0.65f)).toFloat().dp
+  // Pinball straight-line border bounce for Rainbow Bounce; continuous clockwise edge-hug loop otherwise
+  val (primaryXVal, primaryYVal) =
+    if (textColorOption == TextColorOption.RAINBOW_BOUNCE) {
+      bounceX to bounceY
+    } else {
+      computeClockwisePerimeterOffset(perimeterProgress, maxX, maxY)
+    }
+  val primaryX = primaryXVal.toFloat().dp
+  val primaryY = primaryYVal.toFloat().dp
 
   val animatedBounceColor by
     animateColorAsState(

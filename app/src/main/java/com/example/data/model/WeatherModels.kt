@@ -49,10 +49,10 @@ enum class DriftIntensity(
   val maxOffsetDp: Float,
   val speedMultiplier: Float,
 ) {
-  SUBTLE("Slow", 10f, 0.75f),
-  BALANCED("Medium", 16f, 1.0f),
-  WIDE("Fast", 24f, 1.6f),
-  FASTEST("Fastest", 24f, 3.2f),
+  SUBTLE("Slow", 10f, 1.0f),
+  BALANCED("Medium", 16f, 2.0f),
+  WIDE("Fast", 24f, 4.0f),
+  FASTEST("Fastest", 24f, 6.0f),
 }
 
 enum class TextColorOption(val label: String) {
