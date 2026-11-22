@@ -7,6 +7,7 @@ import com.example.data.local.UserPreferencesRepository
 import com.example.data.local.UserSettings
 import com.example.data.model.CitySearchResult
 import com.example.data.model.DriftIntensity
+import com.example.data.model.DriftMotionMode
 import com.example.data.model.SavedLocation
 import com.example.data.model.TemperatureUnit
 import com.example.data.model.TextColorOption
@@ -265,6 +266,10 @@ class ScreensaverViewModel(application: Application) : AndroidViewModel(applicat
 
   fun setDriftIntensity(intensity: DriftIntensity) {
     viewModelScope.launch { prefsRepo.setDriftIntensity(intensity) }
+  }
+
+  fun setDriftMotionMode(mode: DriftMotionMode) {
+    viewModelScope.launch { prefsRepo.setDriftMotionMode(mode) }
   }
 
   fun setTextColorOption(option: TextColorOption) {

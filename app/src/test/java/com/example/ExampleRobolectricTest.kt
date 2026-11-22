@@ -6,6 +6,7 @@ import com.example.data.local.MAX_SAVED_LOCATIONS
 import com.example.data.local.UserSettings
 import com.example.data.local.upsertSavedLocationList
 import com.example.data.model.DriftIntensity
+import com.example.data.model.DriftMotionMode
 import com.example.data.model.SavedLocation
 import com.example.data.model.TextColorOption
 import com.example.data.model.WeatherCondition
@@ -15,6 +16,7 @@ import com.example.data.model.degreesToCompass
 import com.example.data.model.precipCategoryLabel
 import com.example.data.repository.deriveMeteorologicalAdvisories
 import com.example.ui.components.HourlyCubeFace
+import com.example.ui.components.computeClockwiseEdgeIndex
 import com.example.ui.components.computeClockwisePerimeterOffset
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -51,7 +53,7 @@ class ExampleRobolectricTest {
     assertEquals(
       listOf(
         "White",
-        "Rainbow",
+        "Rainbow Timer",
         "Rainbow Bounce",
         "Electric Cyan",
         "Mint",
@@ -63,6 +65,8 @@ class ExampleRobolectricTest {
       TextColorOption.entries.map { it.label },
     )
     assertEquals(TextColorOption.WHITE, UserSettings().textColorOption)
+    assertEquals(DriftMotionMode.CLOCKWISE, UserSettings().driftMotionMode)
+    assertEquals(listOf("Clockwise", "DVD Bounce"), DriftMotionMode.entries.map { it.label })
   }
 
   @Test
@@ -165,6 +169,11 @@ class ExampleRobolectricTest {
 
     assertEquals(20.0, wrappedTopRight.first, 0.0001)
     assertEquals(-10.0, wrappedTopRight.second, 0.0001)
+
+    assertEquals(0, computeClockwiseEdgeIndex(0.0, maxX, maxY))
+    assertEquals(1, computeClockwiseEdgeIndex(25.0 / 120.0, maxX, maxY))
+    assertEquals(2, computeClockwiseEdgeIndex(65.0 / 120.0, maxX, maxY))
+    assertEquals(3, computeClockwiseEdgeIndex(85.0 / 120.0, maxX, maxY))
   }
 
   @Test

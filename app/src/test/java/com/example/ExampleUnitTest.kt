@@ -1,16 +1,153 @@
 package com.example
 
-import org.junit.Assert.*
+import com.example.data.local.MAX_SAVED_LOCATIONS
+import com.example.data.local.UserSettings
+import com.example.data.local.upsertSavedLocationList
+import com.example.data.model.DriftIntensity
+import com.example.data.model.DriftMotionMode
+import com.example.data.model.SavedLocation
+import com.example.data.model.TextColorOption
+import com.example.data.model.WeatherCondition
+import com.example.data.model.WindSpeedUnit
+import com.example.data.model.aqiCategoryLabel
+import com.example.data.model.degreesToCompass
+import com.example.data.model.precipCategoryLabel
+import com.example.data.repository.deriveMeteorologicalAdvisories
+import com.example.ui.components.HourlyCubeFace
+import com.example.ui.components.computeClockwiseEdgeIndex
+import com.example.ui.components.computeClockwisePerimeterOffset
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * Example local unit test, which will execute on the development machine (host).
- *
- * See [testing documentation](http://d.android.com/tools/testing).
- */
 class ExampleUnitTest {
   @Test
-  fun addition_isCorrect() {
-    assertEquals(4, 2 + 2)
+  fun `wmo codes map to expected weather conditions`() {
+    assertEquals(WeatherCondition.SUNNY, WeatherCondition.fromWmoCode(0, isDay = true))
+    assertEquals(WeatherCondition.CLEAR_NIGHT, WeatherCondition.fromWmoCode(0, isDay = false))
+    assertEquals(WeatherCondition.PARTLY_CLOUDY, WeatherCondition.fromWmoCode(2, isDay = true))
+    assertEquals(WeatherCondition.CLOUDY, WeatherCondition.fromWmoCode(3, isDay = true))
+    assertEquals(WeatherCondition.RAINY, WeatherCondition.fromWmoCode(63, isDay = true))
+    assertEquals(WeatherCondition.SNOWY, WeatherCondition.fromWmoCode(73, isDay = false))
+    assertEquals(WeatherCondition.STORMY, WeatherCondition.fromWmoCode(95, isDay = true))
+  }
+
+  @Test
+  fun `text color and motion mode options cover decoupled clockwise and dvd bounce`() {
+    assertEquals(
+      listOf(
+        "White",
+        "Rainbow Timer",
+        "Rainbow Bounce",
+        "Electric Cyan",
+        "Mint",
+        "Solar Gold",
+        "Coral",
+        "Violet",
+        "Cobalt",
+      ),
+      TextColorOption.entries.map { it.label },
+    )
+    assertEquals(TextColorOption.WHITE, UserSettings().textColorOption)
+    assertEquals(DriftMotionMode.CLOCKWISE, UserSettings().driftMotionMode)
+    assertEquals(listOf("Clockwise", "DVD Bounce"), DriftMotionMode.entries.map { it.label })
+  }
+
+  @Test
+  fun `drift intensity exposes slow, medium, fast, and fastest at 1x, 2x, 4x, and 6x speeds`() {
+    assertEquals(
+      listOf("Slow", "Medium", "Fast", "Fastest"),
+      DriftIntensity.entries.map { it.label },
+    )
+    assertEquals(
+      listOf(1.0f, 2.0f, 4.0f, 6.0f),
+      DriftIntensity.entries.map { it.speedMultiplier },
+    )
+  }
+
+  @Test
+  fun `saved locations cap at 5 and preserve active entry when replacing`() {
+    val c1 = SavedLocation("Seattle", "WA", "US", 47.6062, -122.3321)
+    val c2 = SavedLocation("Portland", "OR", "US", 45.5152, -122.6784)
+    val c3 = SavedLocation("Denver", "CO", "US", 39.7392, -104.9903)
+    val c4 = SavedLocation("Chicago", "IL", "US", 41.8781, -87.6298)
+    val c5 = SavedLocation("Austin", "TX", "US", 30.2672, -97.7431)
+    val c6 = SavedLocation("Boston", "MA", "US", 42.3601, -71.0589)
+
+    val updated =
+      upsertSavedLocationList(
+        current = listOf(c1, c2, c3, c4, c5),
+        incoming = c6,
+        activeLat = c1.latitude,
+        activeLon = c1.longitude,
+      )
+
+    assertEquals(MAX_SAVED_LOCATIONS, updated.size)
+    assertTrue(updated.any { it.name == "Seattle" })
+    assertTrue(updated.any { it.name == "Boston" })
+    assertFalse(updated.any { it.name == "Portland" })
+  }
+
+  @Test
+  fun `meteorological advisories trigger only for genuine severe codes or high wind gusts`() {
+    val calm =
+      deriveMeteorologicalAdvisories(
+        cityName = "Seattle",
+        wmoCodes = listOf(0, 1, 2, 3),
+        windGusts = 14,
+        windUnit = WindSpeedUnit.MPH,
+      )
+    assertTrue(calm.isEmpty())
+
+    val severe =
+      deriveMeteorologicalAdvisories(
+        cityName = "Denver",
+        wmoCodes = listOf(96, 65),
+        windGusts = 55,
+        windUnit = WindSpeedUnit.MPH,
+      )
+    assertEquals(3, severe.size)
+  }
+
+  @Test
+  fun `clockwise perimeter drift hugs edges and reports edge index transitions`() {
+    val maxX = 20.0
+    val maxY = 10.0
+    val topRight = computeClockwisePerimeterOffset(0.0, maxX, maxY)
+    val bottomRight = computeClockwisePerimeterOffset(20.0 / 120.0, maxX, maxY)
+    val bottomLeft = computeClockwisePerimeterOffset(60.0 / 120.0, maxX, maxY)
+    val topLeft = computeClockwisePerimeterOffset(80.0 / 120.0, maxX, maxY)
+
+    assertEquals(20.0, topRight.first, 0.0001)
+    assertEquals(-10.0, topRight.second, 0.0001)
+    assertEquals(20.0, bottomRight.first, 0.0001)
+    assertEquals(10.0, bottomRight.second, 0.0001)
+    assertEquals(-20.0, bottomLeft.first, 0.0001)
+    assertEquals(10.0, bottomLeft.second, 0.0001)
+    assertEquals(-20.0, topLeft.first, 0.0001)
+    assertEquals(-10.0, topLeft.second, 0.0001)
+
+    assertEquals(0, computeClockwiseEdgeIndex(0.0, maxX, maxY))
+    assertEquals(1, computeClockwiseEdgeIndex(25.0 / 120.0, maxX, maxY))
+    assertEquals(2, computeClockwiseEdgeIndex(65.0 / 120.0, maxX, maxY))
+    assertEquals(3, computeClockwiseEdgeIndex(85.0 / 120.0, maxX, maxY))
+  }
+
+  @Test
+  fun `rotating cube cycles four forecast modes and maps labels`() {
+    assertEquals(
+      listOf(
+        "24-HOUR FORECAST",
+        "12-HOUR PRECIPITATION",
+        "12-HOUR WIND SPEED",
+        "12-HOUR AIR QUALITY",
+      ),
+      HourlyCubeFace.entries.map { it.title },
+    )
+    assertEquals("SW", degreesToCompass(225))
+    assertEquals("Chance", precipCategoryLabel(30))
+    assertEquals("Poor", aqiCategoryLabel(165))
+    assertEquals("N/A", aqiCategoryLabel(null))
   }
 }

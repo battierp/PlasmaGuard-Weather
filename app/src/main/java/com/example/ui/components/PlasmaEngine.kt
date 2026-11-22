@@ -17,6 +17,7 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.example.data.model.DriftIntensity
+import com.example.data.model.DriftMotionMode
 import com.example.data.model.TextColorOption
 import com.example.ui.theme.AuroraCyan
 import com.example.ui.theme.BrightCobalt
@@ -40,17 +41,35 @@ data class PlasmaShieldState(
   val pulseFraction: Float,
 )
 
-private val BrightTextSpectrum =
+// Spectrally ordered neighboring hues for Rainbow Timer (least jarring smooth bleed)
+private val RainbowTimerSpectrum =
   listOf(
-    AuroraCyan,
-    SeafoamTeal,
-    BrightGold,
-    BrightCoral,
-    SoftAmethyst,
-    BrightCobalt,
+    Color(0xFFFF6B6B), // Warm Coral Red
+    Color(0xFFFF9E5E), // Tangerine Peach
+    BrightGold,        // Solar Gold
+    Color(0xFFA3E635), // Soft Lime
+    Color(0xFF34D399), // Mint Green
+    SeafoamTeal,       // Seafoam Teal
+    AuroraCyan,        // Aurora Cyan
+    Color(0xFF60A5FA), // Sky Cobalt
+    Color(0xFF818CF8), // Periwinkle Indigo
+    SoftAmethyst,      // Soft Amethyst
+    Color(0xFFF472B6), // Rose Pink
   )
 
-private const val RAINBOW_MS_PER_COLOR = 60_000L
+// Complementary-jump high-contrast palette for Rainbow Bounce (unmistakable color shift per hit)
+private val RainbowBounceSpectrum =
+  listOf(
+    AuroraCyan,        // Cyan (~198°)
+    Color(0xFFFF3B5C), // Scarlet Red (~350°)
+    Color(0xFF34E87A), // Neon Mint (~144°)
+    Color(0xFFB84DFF), // Electric Purple (~277°)
+    BrightGold,        // Bright Gold (~47°)
+    Color(0xFF2979FF), // Deep Cobalt (~217°)
+    Color(0xFFFF7A00), // Blazing Orange (~29°)
+  )
+
+private const val RAINBOW_TIMER_MS_PER_COLOR = 12_000L
 
 internal fun computeClockwisePerimeterOffset(
   progress: Double,
@@ -87,10 +106,35 @@ internal fun computeClockwisePerimeterOffset(
   }
 }
 
+internal fun computeClockwiseEdgeIndex(
+  progress: Double,
+  maxX: Double,
+  maxY: Double,
+): Int {
+  val safeMaxX = maxX.coerceAtLeast(0.0)
+  val safeMaxY = maxY.coerceAtLeast(0.0)
+  val horizontalEdge = 2.0 * safeMaxX
+  val verticalEdge = 2.0 * safeMaxY
+  val totalPerimeter = 2.0 * (horizontalEdge + verticalEdge)
+  if (totalPerimeter <= 0.0) return 0
+
+  val wrapped = ((progress % 1.0) + 1.0) % 1.0
+  val distance = wrapped * totalPerimeter
+  return when {
+    distance < verticalEdge -> 0
+    distance < verticalEdge + horizontalEdge -> 1
+    distance < verticalEdge + horizontalEdge + verticalEdge -> 2
+    else -> 3
+  }
+}
+
 @Composable
 fun rememberPlasmaShieldState(
   driftIntensity: DriftIntensity,
+  driftMotionMode: DriftMotionMode,
   textColorOption: TextColorOption,
+  maxTravelXDp: Float = driftIntensity.maxOffsetDp,
+  maxTravelYDp: Float = driftIntensity.maxOffsetDp * 0.65f,
 ): PlasmaShieldState {
   var elapsedMs by remember { mutableLongStateOf(0L) }
   var perimeterProgress by remember { mutableDoubleStateOf(0.0) }
@@ -99,26 +143,37 @@ fun rememberPlasmaShieldState(
   var bounceColorIndex by remember { mutableIntStateOf(0) }
 
   val currentSpeedMultiplier by rememberUpdatedState(driftIntensity.speedMultiplier)
-  val currentMaxDp by rememberUpdatedState(driftIntensity.maxOffsetDp)
-  val currentOption by rememberUpdatedState(textColorOption)
+  val currentMotionMode by rememberUpdatedState(driftMotionMode)
+  val currentMaxXDp by rememberUpdatedState(maxTravelXDp)
+  val currentMaxYDp by rememberUpdatedState(maxTravelYDp)
 
   LaunchedEffect(Unit) {
     val startFrame = withFrameMillis { it }
     var lastFrame = startFrame
     var vxSign = 1.0
     var vySign = 1.0
+    var lastEdgeIdx = 0
+
     while (true) {
       withFrameMillis { frameTime ->
         val deltaSec = ((frameTime - lastFrame).coerceIn(0L, 250L)) / 1000.0
         lastFrame = frameTime
         elapsedMs = (frameTime - startFrame).coerceAtLeast(0L)
 
-        val maxX = currentMaxDp.toDouble().coerceAtLeast(1.0)
-        val maxY = (currentMaxDp * 0.65).coerceAtLeast(1.0)
-        val speedX = (maxX * 4.0 / 40.0) * currentSpeedMultiplier
-        val speedY = (maxY * 4.0 / 53.0) * currentSpeedMultiplier
+        val maxX = currentMaxXDp.toDouble().coerceAtLeast(1.0)
+        val maxY = currentMaxYDp.toDouble().coerceAtLeast(1.0)
 
-        if (currentOption == TextColorOption.RAINBOW_BOUNCE) {
+        // Wide travel (DVD 20% shrink or Hero-only TV edge travel) uses smooth visible screen traversal;
+        // tight anti-burn-in drift keeps gentle pixel shift scaled cleanly by 1x/2x/4x/6x.
+        val isWideTravel = maxX > 30.0 || maxY > 24.0
+        val speedX =
+          if (isWideTravel) 10.0 * currentSpeedMultiplier
+          else (maxX * 4.0 / 40.0) * currentSpeedMultiplier
+        val speedY =
+          if (isWideTravel) 7.5 * currentSpeedMultiplier
+          else (maxY * 4.0 / 53.0) * currentSpeedMultiplier
+
+        if (currentMotionMode == DriftMotionMode.DVD_BOUNCE) {
           var nextX = bounceX + vxSign * speedX * deltaSec
           var nextY = bounceY + vySign * speedY * deltaSec
           var hitBorder = false
@@ -146,39 +201,46 @@ fun rememberPlasmaShieldState(
           bounceX = nextX.coerceIn(-maxX, maxX)
           bounceY = nextY.coerceIn(-maxY, maxY)
           if (hitBorder) {
-            bounceColorIndex = (bounceColorIndex + 1) % BrightTextSpectrum.size
+            bounceColorIndex = (bounceColorIndex + 1) % RainbowBounceSpectrum.size
           }
+          lastEdgeIdx = computeClockwiseEdgeIndex(perimeterProgress, maxX, maxY)
         } else {
-          val totalPerimeter = 4.0 * maxX + 4.0 * maxY
-          val perimeterSpeedDpPerSec = hypot(speedX, speedY)
+          val totalPerimeter = (4.0 * maxX + 4.0 * maxY).coerceAtLeast(1.0)
+          val perimeterSpeedDpPerSec =
+            if (isWideTravel) 12.5 * currentSpeedMultiplier
+            else hypot(speedX, speedY)
           perimeterProgress =
             ((perimeterProgress + (perimeterSpeedDpPerSec * deltaSec) / totalPerimeter) % 1.0 + 1.0) % 1.0
           val (edgeX, edgeY) = computeClockwisePerimeterOffset(perimeterProgress, maxX, maxY)
           bounceX = edgeX
           bounceY = edgeY
+          val nextEdgeIdx = computeClockwiseEdgeIndex(perimeterProgress, maxX, maxY)
+          if (nextEdgeIdx != lastEdgeIdx) {
+            lastEdgeIdx = nextEdgeIdx
+            bounceColorIndex = (bounceColorIndex + 1) % RainbowBounceSpectrum.size
+          }
         }
       }
     }
   }
 
   val tSec = elapsedMs / 1000.0
-  val maxX = driftIntensity.maxOffsetDp.toDouble()
-  val maxY = driftIntensity.maxOffsetDp * 0.65
+  val clampedMaxX = maxTravelXDp.toDouble().coerceAtLeast(1.0)
+  val clampedMaxY = maxTravelYDp.toDouble().coerceAtLeast(1.0)
 
-  // Pinball straight-line border bounce for Rainbow Bounce; continuous clockwise edge-hug loop otherwise
   val (primaryXVal, primaryYVal) =
-    if (textColorOption == TextColorOption.RAINBOW_BOUNCE) {
-      bounceX to bounceY
+    if (driftMotionMode == DriftMotionMode.DVD_BOUNCE) {
+      bounceX.coerceIn(-clampedMaxX, clampedMaxX) to bounceY.coerceIn(-clampedMaxY, clampedMaxY)
     } else {
-      computeClockwisePerimeterOffset(perimeterProgress, maxX, maxY)
+      computeClockwisePerimeterOffset(perimeterProgress, clampedMaxX, clampedMaxY)
     }
   val primaryX = primaryXVal.toFloat().dp
   val primaryY = primaryYVal.toFloat().dp
 
   val animatedBounceColor by
     animateColorAsState(
-      targetValue = BrightTextSpectrum[bounceColorIndex % BrightTextSpectrum.size],
-      animationSpec = tween(durationMillis = 240),
+      targetValue = RainbowBounceSpectrum[bounceColorIndex % RainbowBounceSpectrum.size],
+      animationSpec = tween(durationMillis = 90),
       label = "rainbow_bounce_color",
     )
 
@@ -196,9 +258,9 @@ fun rememberPlasmaShieldState(
     }
 
     TextColorOption.RAINBOW -> {
-      val cycleMs = BrightTextSpectrum.size * RAINBOW_MS_PER_COLOR
+      val cycleMs = RainbowTimerSpectrum.size * RAINBOW_TIMER_MS_PER_COLOR
       val phase = ((elapsedMs % cycleMs).toDouble() / cycleMs.toDouble()).toFloat()
-      val activeColor = sampleCyclicPalette(phase)
+      val activeColor = sampleCyclicPalette(RainbowTimerSpectrum, phase)
       primaryTextColor = activeColor
       secondaryTextColor = activeColor.copy(alpha = 0.80f)
       primaryAccent = activeColor
@@ -245,13 +307,13 @@ fun rememberPlasmaShieldState(
   )
 }
 
-private fun sampleCyclicPalette(fraction: Float): Color {
-  val count = BrightTextSpectrum.size
+private fun sampleCyclicPalette(palette: List<Color>, fraction: Float): Color {
+  val count = palette.size
   val scaled = (fraction.coerceIn(0f, 1f)) * count
   val idx = scaled.toInt() % count
   val nextIdx = (idx + 1) % count
   val localT = scaled - scaled.toInt()
-  // Smoothstep easing between bright color anchors
+  // Smoothstep easing between neighboring hue anchors so transitions bleed smoothly
   val smoothT = localT * localT * (3f - 2f * localT)
-  return lerp(BrightTextSpectrum[idx], BrightTextSpectrum[nextIdx], smoothT)
+  return lerp(palette[idx], palette[nextIdx], smoothT)
 }

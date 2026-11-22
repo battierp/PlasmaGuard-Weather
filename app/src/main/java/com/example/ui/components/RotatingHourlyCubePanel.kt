@@ -333,7 +333,7 @@ private fun CubeFacePanelContent(
     modifier = modifier,
     shape = RoundedCornerShape(20.dp),
     color = Color.Black,
-    border = BorderStroke(1.dp, plasma.primaryAccent.copy(alpha = 0.22f)),
+    border = null,
   ) {
     Column(
       modifier =
@@ -563,7 +563,7 @@ private fun CubeSlotCard(
     modifier = modifier,
     shape = RoundedCornerShape(14.dp),
     color = Color.Transparent,
-    border = BorderStroke(width = 1.dp, color = plasma.secondaryTextColor.copy(alpha = 0.16f)),
+    border = null,
   ) {
     Column(
       modifier =

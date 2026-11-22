@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.example.data.model.DriftIntensity
+import com.example.data.model.DriftMotionMode
 import com.example.data.model.SavedLocation
 import com.example.data.model.TemperatureUnit
 import com.example.data.model.TextColorOption
@@ -33,6 +34,7 @@ data class UserSettings(
   val windSpeedUnit: WindSpeedUnit = WindSpeedUnit.MPH,
   val use24HourClock: Boolean = false,
   val driftIntensity: DriftIntensity = DriftIntensity.BALANCED,
+  val driftMotionMode: DriftMotionMode = DriftMotionMode.CLOCKWISE,
   val textColorOption: TextColorOption = TextColorOption.WHITE,
   val show7DayForecast: Boolean = true,
   val show24HourForecast: Boolean = true,
@@ -54,6 +56,7 @@ class UserPreferencesRepository(
     val WIND_SPEED_UNIT = stringPreferencesKey("wind_speed_unit")
     val USE_24H_CLOCK = booleanPreferencesKey("use_24h_clock")
     val DRIFT_INTENSITY = stringPreferencesKey("drift_intensity")
+    val DRIFT_MOTION_MODE = stringPreferencesKey("drift_motion_mode")
     val TEXT_COLOR_OPTION = stringPreferencesKey("text_color_option")
     val SHOW_7_DAY_FORECAST = booleanPreferencesKey("show_7_day_forecast")
     val SHOW_24_HOUR_FORECAST = booleanPreferencesKey("show_24_hour_forecast")
@@ -99,6 +102,10 @@ class UserPreferencesRepository(
           prefs[Keys.DRIFT_INTENSITY]?.let { name ->
             DriftIntensity.entries.firstOrNull { it.name == name }
           } ?: DriftIntensity.BALANCED,
+        driftMotionMode =
+          prefs[Keys.DRIFT_MOTION_MODE]?.let { name ->
+            DriftMotionMode.entries.firstOrNull { it.name == name }
+          } ?: DriftMotionMode.CLOCKWISE,
         textColorOption =
           prefs[Keys.TEXT_COLOR_OPTION]?.let { name ->
             TextColorOption.entries.firstOrNull { it.name == name }
@@ -199,6 +206,12 @@ class UserPreferencesRepository(
   suspend fun setDriftIntensity(intensity: DriftIntensity) {
     context.dataStore.edit { prefs ->
       prefs[Keys.DRIFT_INTENSITY] = intensity.name
+    }
+  }
+
+  suspend fun setDriftMotionMode(mode: DriftMotionMode) {
+    context.dataStore.edit { prefs ->
+      prefs[Keys.DRIFT_MOTION_MODE] = mode.name
     }
   }
 

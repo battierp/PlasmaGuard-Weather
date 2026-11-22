@@ -37,6 +37,7 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DashboardCustomize
 import androidx.compose.material.icons.rounded.LocationOn
+import androidx.compose.material.icons.rounded.OpenWith
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
@@ -83,6 +84,7 @@ import com.example.data.local.MAX_SAVED_LOCATIONS
 import com.example.data.local.UserSettings
 import com.example.data.model.CitySearchResult
 import com.example.data.model.DriftIntensity
+import com.example.data.model.DriftMotionMode
 import com.example.data.model.SavedLocation
 import com.example.data.model.TemperatureUnit
 import com.example.data.model.TextColorOption
@@ -124,6 +126,7 @@ fun SettingsOverlay(
   onToggle24HourForecast: (Boolean) -> Unit,
   onToggleSevereAlerts: (Boolean) -> Unit,
   onSelectDriftIntensity: (DriftIntensity) -> Unit,
+  onSelectDriftMotionMode: (DriftMotionMode) -> Unit,
   onSelectTextColor: (TextColorOption) -> Unit,
   onRefreshWeather: () -> Unit,
 ) {
@@ -166,7 +169,7 @@ fun SettingsOverlay(
             Text(
               text = "Current city: ${settings.cityName}",
               style = MaterialTheme.typography.bodyMedium,
-              color = accentColor,
+              color = SoftFrostText,
             )
           }
           IconButton(
@@ -198,7 +201,12 @@ fun SettingsOverlay(
             value = citySearchState.query,
             onValueChange = onQueryChange,
             modifier = Modifier.weight(1f).testTag("city_search_input"),
-            placeholder = { Text("Search city or zip code (e.g. Seattle, 90210)", color = MutedSlateText) },
+            placeholder = {
+              Text(
+                "Search city or zip code (e.g. Seattle, 90210)",
+                color = SoftFrostText.copy(alpha = 0.65f),
+              )
+            },
             singleLine = true,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             keyboardActions = KeyboardActions(onSearch = { onSearchSubmit() }),
@@ -232,7 +240,7 @@ fun SettingsOverlay(
           Text(
             text = citySearchState.statusMessage,
             style = MaterialTheme.typography.bodyMedium,
-            color = accentColor,
+            color = SoftFrostText,
           )
         }
 
@@ -268,7 +276,7 @@ fun SettingsOverlay(
                 horizontalArrangement = Arrangement.SpaceBetween,
               ) {
                 Text(text = city.displayName, style = MaterialTheme.typography.bodyLarge, color = SoftFrostText)
-                Text(text = "Save & Select", style = MaterialTheme.typography.labelLarge, color = accentColor)
+                Text(text = "Save & Select", style = MaterialTheme.typography.labelLarge, color = SoftFrostText)
               }
             }
           }
@@ -314,7 +322,7 @@ fun SettingsOverlay(
               "Save up to 5 locations using search above, then swap with D-pad Left / Right or enable Auto-Rotate."
             },
           style = MaterialTheme.typography.labelSmall,
-          color = MutedSlateText,
+          color = SoftFrostText.copy(alpha = 0.78f),
         )
 
         HorizontalDivider(color = SubtleOutline)
@@ -415,16 +423,87 @@ fun SettingsOverlay(
           Text(
             text = alertSummary,
             style = MaterialTheme.typography.labelSmall,
-            color = if (activeAlerts.isNotEmpty()) BrightCoral else MutedSlateText,
+            color = SoftFrostText.copy(alpha = 0.85f),
           )
         }
 
         HorizontalDivider(color = SubtleOutline)
 
-        // Plasma Burn-in Protection Controls
+        // Dedicated Motion Mode Toggle (Clockwise vs DVD Bounce)
+        SectionHeader(
+          icon = Icons.Rounded.OpenWith,
+          title = "Motion Mode",
+          tint = accentColor,
+        )
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+          DriftMotionMode.entries.forEach { motionMode ->
+            val selected = settings.driftMotionMode == motionMode
+            var focused by remember { mutableStateOf(false) }
+            Surface(
+              modifier =
+                Modifier.weight(1f)
+                  .minimumInteractiveComponentSize()
+                  .clip(RoundedCornerShape(12.dp))
+                  .onFocusChanged { focused = it.isFocused }
+                  .focusable()
+                  .clickable { onSelectDriftMotionMode(motionMode) }
+                  .testTag("motion_mode_${motionMode.name.lowercase()}_chip"),
+              shape = RoundedCornerShape(12.dp),
+              color =
+                when {
+                  selected -> accentColor.copy(alpha = 0.24f)
+                  focused -> ElevatedSurface
+                  else -> DeepCardSurface
+                },
+              border =
+                BorderStroke(
+                  width = if (focused || selected) 2.dp else 1.dp,
+                  color =
+                    when {
+                      focused -> accentColor
+                      selected -> accentColor.copy(alpha = 0.80f)
+                      else -> SubtleOutline
+                    },
+                ),
+            ) {
+              Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+              ) {
+                if (selected) {
+                  Icon(
+                    imageVector = Icons.Rounded.Check,
+                    contentDescription = null,
+                    tint = accentColor,
+                    modifier = Modifier.size(16.dp),
+                  )
+                  Spacer(modifier = Modifier.width(6.dp))
+                }
+                Text(
+                  text = motionMode.label,
+                  style = MaterialTheme.typography.labelLarge,
+                  fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                  color = SoftFrostText,
+                )
+              }
+            }
+          }
+        }
+        Text(
+          text =
+            "Clockwise glides continuously along the outer edges; DVD Bounce shrinks elements by 20% and bounces off edges.",
+          style = MaterialTheme.typography.labelSmall,
+          color = SoftFrostText.copy(alpha = 0.78f),
+        )
+
+        // Plasma Burn-in Protection Speed Controls
         SectionHeader(
           icon = Icons.Rounded.Shield,
-          title = "Plasma Burn-In Shield (Motion Drift)",
+          title = "Motion Drift Speed (Plasma Shield)",
           tint = accentColor,
         )
         FlowRow(
@@ -509,14 +588,14 @@ fun SettingsOverlay(
           Text(
             text = systemSettingsFeedback.orEmpty(),
             style = MaterialTheme.typography.bodyMedium,
-            color = accentColor,
+            color = SoftFrostText,
           )
         }
 
         Text(
           text = "Forecast Data: Open-Meteo & NOAA/NWS Live Alerts",
           style = MaterialTheme.typography.labelSmall,
-          color = MutedSlateText,
+          color = SoftFrostText.copy(alpha = 0.78f),
         )
       }
     }
@@ -580,7 +659,7 @@ private fun SavedLocationPill(
         Text(
           text = location.displayLabel,
           style = MaterialTheme.typography.labelLarge,
-          color = if (selected || selectFocused) SoftFrostText else MutedSlateText,
+          color = if (selected || selectFocused) SoftFrostText else SoftFrostText.copy(alpha = 0.85f),
         )
       }
 
@@ -596,7 +675,7 @@ private fun SavedLocationPill(
           Icon(
             imageVector = Icons.Rounded.Close,
             contentDescription = "Remove ${location.shortLabel}",
-            tint = if (removeFocused) BrightCoral else MutedSlateText,
+            tint = if (removeFocused) BrightCoral else SoftFrostText.copy(alpha = 0.78f),
             modifier = Modifier.size(16.dp),
           )
         }
@@ -673,7 +752,7 @@ private fun TvSelectableChip(
       Text(
         text = label,
         style = MaterialTheme.typography.labelLarge,
-        color = if (selected || focused) SoftFrostText else MutedSlateText,
+        color = if (selected || focused) SoftFrostText else SoftFrostText.copy(alpha = 0.85f),
       )
     }
   }
@@ -720,14 +799,14 @@ private fun TextColorDropdown(
             Text(
               text = "Display Text Color",
               style = MaterialTheme.typography.labelSmall,
-              color = MutedSlateText,
+              color = SoftFrostText.copy(alpha = 0.78f),
             )
             Text(
               text =
                 when (selectedOption) {
                   TextColorOption.WHITE -> "White (Default)"
-                  TextColorOption.RAINBOW -> "Rainbow (1 Bright Color / Min)"
-                  TextColorOption.RAINBOW_BOUNCE -> "Rainbow Bounce (Border Bounce)"
+                  TextColorOption.RAINBOW -> "Rainbow Timer (Smooth Similar Blend)"
+                  TextColorOption.RAINBOW_BOUNCE -> "Rainbow Bounce (Contrasting Hit)"
                   else -> selectedOption.label
                 },
               style = MaterialTheme.typography.bodyLarge,
@@ -756,12 +835,12 @@ private fun TextColorDropdown(
             Text(
               text =
                 when (option) {
-                  TextColorOption.RAINBOW -> "Rainbow (1 color / min)"
-                  TextColorOption.RAINBOW_BOUNCE -> "Rainbow Bounce (border hit)"
+                  TextColorOption.RAINBOW -> "Rainbow Timer (Smooth Blend)"
+                  TextColorOption.RAINBOW_BOUNCE -> "Rainbow Bounce (Contrast Hit)"
                   else -> option.label
                 },
               style = MaterialTheme.typography.bodyLarge,
-              color = if (isSelected) accentColor else SoftFrostText,
+              color = SoftFrostText,
               fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
             )
           },

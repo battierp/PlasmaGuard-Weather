@@ -55,9 +55,14 @@ enum class DriftIntensity(
   FASTEST("Fastest", 24f, 6.0f),
 }
 
+enum class DriftMotionMode(val label: String) {
+  CLOCKWISE("Clockwise"),
+  DVD_BOUNCE("DVD Bounce"),
+}
+
 enum class TextColorOption(val label: String) {
   WHITE("White"),
-  RAINBOW("Rainbow"),
+  RAINBOW("Rainbow Timer"),
   RAINBOW_BOUNCE("Rainbow Bounce"),
   ELECTRIC_CYAN("Electric Cyan"),
   MINT("Mint"),

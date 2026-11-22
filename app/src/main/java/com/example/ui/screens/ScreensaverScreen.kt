@@ -38,6 +38,7 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ChevronLeft
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.LocationOn
+import androidx.compose.material.icons.rounded.OpenWith
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Settings
@@ -101,8 +102,19 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.text.style.LineHeightStyle
+import androidx.compose.ui.unit.IntSize
 import com.example.data.local.UserSettings
 import com.example.data.model.DailyForecast
+import com.example.data.model.DriftMotionMode
 import com.example.data.model.TemperatureUnit
 import com.example.data.model.TextColorOption
 import com.example.data.model.WeatherAlert
@@ -115,6 +127,7 @@ import com.example.ui.components.PlasmaShieldState
 import com.example.ui.components.RotatingHourlyCubePanel
 import com.example.ui.components.WeatherGlyph
 import com.example.ui.components.rememberPlasmaShieldState
+import com.example.ui.theme.AuroraCyan
 import com.example.ui.theme.BrightCoral
 import com.example.ui.theme.BrightGold
 import com.example.ui.theme.ElevatedSurface
@@ -148,10 +161,21 @@ fun ScreensaverRoute(
   val citySearchState by viewModel.citySearchState.collectAsStateWithLifecycle()
   val locationSwapBanner by viewModel.locationSwapBanner.collectAsStateWithLifecycle()
 
+  var dynamicDriftBounds by remember { mutableStateOf<Pair<Float, Float>?>(null) }
+
+  LaunchedEffect(weatherState is WeatherUiState.Ready) {
+    if (weatherState !is WeatherUiState.Ready) {
+      dynamicDriftBounds = null
+    }
+  }
+
   val plasma =
     rememberPlasmaShieldState(
       driftIntensity = settings.driftIntensity,
+      driftMotionMode = settings.driftMotionMode,
       textColorOption = settings.textColorOption,
+      maxTravelXDp = dynamicDriftBounds?.first ?: settings.driftIntensity.maxOffsetDp,
+      maxTravelYDp = dynamicDriftBounds?.second ?: (settings.driftIntensity.maxOffsetDp * 0.65f),
     )
 
   var tvFramePreviewOnPhone by rememberSaveable { mutableStateOf(true) }
@@ -274,6 +298,12 @@ fun ScreensaverRoute(
           settings = settings,
           clockDisplay = clockDisplay,
           plasma = plasma,
+          onUpdateDriftBounds = { maxX, maxY ->
+            val next = maxX to maxY
+            if (dynamicDriftBounds != next) {
+              dynamicDriftBounds = next
+            }
+          },
           onOpenSettings = { onToggleSettings(true) },
           onRefresh = viewModel::refreshWeather,
           onPrevLocation = { viewModel.cycleSavedLocation(step = -1, showSwapToast = false) },
@@ -287,16 +317,22 @@ fun ScreensaverRoute(
               }
             viewModel.setTemperatureUnit(next)
           },
+          onToggleDriftMotionMode = {
+            val next =
+              if (settings.driftMotionMode == DriftMotionMode.CLOCKWISE) {
+                DriftMotionMode.DVD_BOUNCE
+              } else {
+                DriftMotionMode.CLOCKWISE
+              }
+            viewModel.setDriftMotionMode(next)
+          },
           onSelectTextColor = viewModel::setTextColorOption,
           onSwitchToPortraitFill = { tvFramePreviewOnPhone = false },
         )
       } else {
         when (val state = weatherState) {
           is WeatherUiState.Loading -> {
-            LoadingWeatherStage(
-              cityName = settings.cityName.takeIf { settings.hasExplicitLocation },
-              plasma = plasma,
-            )
+            LoadingWeatherStage(plasma = plasma)
           }
 
           is WeatherUiState.Error -> {
@@ -315,6 +351,12 @@ fun ScreensaverRoute(
               clockDisplay = clockDisplay,
               plasma = plasma,
               forceTvWide = false,
+              onUpdateDriftBounds = { maxX, maxY ->
+                val next = maxX to maxY
+                if (dynamicDriftBounds != next) {
+                  dynamicDriftBounds = next
+                }
+              },
             )
           }
         }
@@ -447,7 +489,7 @@ fun ScreensaverRoute(
         settings = settings,
         citySearchState = citySearchState,
         activeAlerts = currentAlerts,
-        accentColor = plasma.primaryAccent,
+        accentColor = AuroraCyan,
         onDismiss = { onToggleSettings(false) },
         onQueryChange = viewModel::updateSearchQuery,
         onSearchSubmit = viewModel::submitCitySearch,
@@ -462,6 +504,7 @@ fun ScreensaverRoute(
         onToggle24HourForecast = viewModel::setShow24HourForecast,
         onToggleSevereAlerts = viewModel::setShowSevereWeatherAlerts,
         onSelectDriftIntensity = viewModel::setDriftIntensity,
+        onSelectDriftMotionMode = viewModel::setDriftMotionMode,
         onSelectTextColor = viewModel::setTextColorOption,
         onRefreshWeather = viewModel::refreshWeather,
       )
@@ -470,7 +513,7 @@ fun ScreensaverRoute(
 }
 
 @Composable
-private fun LoadingWeatherStage(cityName: String?, plasma: PlasmaShieldState) {
+private fun LoadingWeatherStage(plasma: PlasmaShieldState) {
   BoxWithConstraints(
     modifier =
       Modifier.fillMaxSize()
@@ -480,47 +523,65 @@ private fun LoadingWeatherStage(cityName: String?, plasma: PlasmaShieldState) {
     contentAlignment = Alignment.Center,
   ) {
     val isCompact = maxWidth < 560.dp
-    val sideGlyphDp = if (isCompact) 30.dp else 44.dp
-    val midGlyphDp = if (isCompact) 36.dp else 52.dp
-    val centerGlyphDp = if (isCompact) 48.dp else 70.dp
-    val titleSp = if (isCompact) 28.sp else 42.sp
-    val statusSp = if (isCompact) 15.sp else 20.sp
+    val graphicWidth = if (isCompact) 140.dp else 200.dp
+    val graphicHeight = if (isCompact) 105.dp else 148.dp
+    val titleSp = if (isCompact) 26.sp else 38.sp
+    val loadingSp = if (isCompact) 20.sp else 28.sp
 
     Column(
       horizontalAlignment = Alignment.CenterHorizontally,
-      verticalArrangement = Arrangement.spacedBy(if (isCompact) 14.dp else 20.dp),
+      verticalArrangement = Arrangement.spacedBy(if (isCompact) 10.dp else 14.dp),
       modifier =
         Modifier.fillMaxWidth()
           .offset(x = plasma.primaryOffsetX, y = plasma.primaryOffsetY),
     ) {
-      Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(if (isCompact) 10.dp else 18.dp),
-      ) {
-        WeatherGlyph(
-          condition = WeatherCondition.SUNNY,
-          plasmaAccent = plasma.primaryAccent,
-          size = sideGlyphDp,
+      // Matches the cold-boot launch graphic (Sun, Cloud, 3 Raindrops) so cold boot transitions seamlessly
+      Canvas(modifier = Modifier.size(width = graphicWidth, height = graphicHeight)) {
+        val w = size.width
+        val h = size.height
+        val sunCenter = Offset(w * 0.68f, h * 0.34f)
+        drawCircle(
+          color = BrightGold.copy(alpha = 0.22f),
+          radius = w * 0.20f,
+          center = sunCenter,
         )
-        WeatherGlyph(
-          condition = WeatherCondition.RAINY,
-          plasmaAccent = plasma.primaryAccent,
-          size = midGlyphDp,
+        drawCircle(
+          color = BrightGold,
+          radius = w * 0.145f,
+          center = sunCenter,
         )
-        WeatherGlyph(
-          condition = WeatherCondition.PARTLY_CLOUDY,
-          plasmaAccent = plasma.primaryAccent,
-          size = centerGlyphDp,
+
+        val cloudColor = Color(0xFFF4F7FF)
+        drawCircle(color = cloudColor, radius = w * 0.165f, center = Offset(w * 0.44f, h * 0.40f))
+        drawCircle(color = cloudColor, radius = w * 0.135f, center = Offset(w * 0.31f, h * 0.48f))
+        drawCircle(color = cloudColor, radius = w * 0.135f, center = Offset(w * 0.58f, h * 0.48f))
+        drawRoundRect(
+          color = cloudColor,
+          topLeft = Offset(w * 0.20f, h * 0.41f),
+          size = Size(w * 0.50f, h * 0.23f),
+          cornerRadius = CornerRadius(h * 0.12f, h * 0.12f),
         )
-        WeatherGlyph(
-          condition = WeatherCondition.SNOWY,
-          plasmaAccent = plasma.primaryAccent,
-          size = midGlyphDp,
+
+        val dropW = w * 0.036f
+        val dropH = h * 0.14f
+        val dropRadius = CornerRadius(dropW / 2f, dropW / 2f)
+        drawRoundRect(
+          color = AuroraCyan,
+          topLeft = Offset(w * 0.34f, h * 0.72f),
+          size = Size(dropW, dropH),
+          cornerRadius = dropRadius,
         )
-        WeatherGlyph(
-          condition = WeatherCondition.CLEAR_NIGHT,
-          plasmaAccent = plasma.primaryAccent,
-          size = sideGlyphDp,
+        drawRoundRect(
+          color = AuroraCyan,
+          topLeft = Offset(w * 0.46f, h * 0.77f),
+          size = Size(dropW, dropH),
+          cornerRadius = dropRadius,
+        )
+        drawRoundRect(
+          color = AuroraCyan,
+          topLeft = Offset(w * 0.58f, h * 0.72f),
+          size = Size(dropW, dropH),
+          cornerRadius = dropRadius,
         )
       }
 
@@ -531,38 +592,29 @@ private fun LoadingWeatherStage(cityName: String?, plasma: PlasmaShieldState) {
             fontFamily = SpaceGroteskFontFamily,
             fontWeight = FontWeight.Bold,
             fontSize = titleSp,
-            lineHeight = (titleSp.value + 6f).sp,
+            lineHeight = (titleSp.value + 4f).sp,
             letterSpacing = (-0.5).sp,
           ),
-        color = plasma.primaryTextColor,
-        minFontSize = 20.sp,
+        color = SoftFrostText,
+        minFontSize = 18.sp,
         textAlign = TextAlign.Center,
         modifier = Modifier.fillMaxWidth().testTag("loading_brand_title"),
       )
 
-      Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-      ) {
-        CircularProgressIndicator(
-          modifier = Modifier.size(if (isCompact) 16.dp else 20.dp),
-          color = plasma.primaryAccent,
-          strokeWidth = 2.5.dp,
-        )
-        Text(
-          text =
-            if (!cityName.isNullOrBlank()) "Loading forecast for $cityName..."
-            else "Loading live weather...",
-          style =
-            MaterialTheme.typography.bodyLarge.copy(
-              fontSize = statusSp,
-              lineHeight = (statusSp.value + 4f).sp,
-            ),
-          color = plasma.secondaryTextColor,
-          maxLines = 1,
-          overflow = TextOverflow.Ellipsis,
-        )
-      }
+      Text(
+        text = "LOADING...",
+        style =
+          MaterialTheme.typography.headlineSmall.copy(
+            fontFamily = SpaceGroteskFontFamily,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = loadingSp,
+            lineHeight = (loadingSp.value + 4f).sp,
+            letterSpacing = 1.5.sp,
+          ),
+        color = AuroraCyan.copy(alpha = 0.65f + 0.35f * plasma.pulseFraction),
+        textAlign = TextAlign.Center,
+        maxLines = 1,
+      )
     }
   }
 }
@@ -619,11 +671,13 @@ private fun TvPreviewPhoneStage(
   settings: UserSettings,
   clockDisplay: ClockDisplay,
   plasma: PlasmaShieldState,
+  onUpdateDriftBounds: (Float, Float) -> Unit,
   onOpenSettings: () -> Unit,
   onRefresh: () -> Unit,
   onPrevLocation: () -> Unit,
   onNextLocation: () -> Unit,
   onToggleUnit: () -> Unit,
+  onToggleDriftMotionMode: () -> Unit,
   onSelectTextColor: (TextColorOption) -> Unit,
   onSwitchToPortraitFill: () -> Unit,
 ) {
@@ -713,10 +767,7 @@ private fun TvPreviewPhoneStage(
             Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
               when (weatherState) {
                 is WeatherUiState.Loading ->
-                  LoadingWeatherStage(
-                    cityName = settings.cityName.takeIf { settings.hasExplicitLocation },
-                    plasma = plasma,
-                  )
+                  LoadingWeatherStage(plasma = plasma)
                 is WeatherUiState.Error ->
                   ErrorWeatherStage(
                     message = weatherState.message,
@@ -731,6 +782,7 @@ private fun TvPreviewPhoneStage(
                     clockDisplay = clockDisplay,
                     plasma = plasma,
                     forceTvWide = true,
+                    onUpdateDriftBounds = onUpdateDriftBounds,
                   )
               }
             }
@@ -845,6 +897,25 @@ private fun TvPreviewPhoneStage(
             )
           }
 
+          OutlinedButton(
+            onClick = onToggleDriftMotionMode,
+            modifier = Modifier.minimumInteractiveComponentSize().testTag("quick_motion_mode_toggle_button"),
+            shape = RoundedCornerShape(12.dp),
+            border = BorderStroke(1.dp, AuroraCyan.copy(alpha = 0.55f)),
+          ) {
+            Icon(
+              imageVector = Icons.Rounded.OpenWith,
+              contentDescription = null,
+              tint = AuroraCyan,
+              modifier = Modifier.size(16.dp),
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+              text = "Motion: ${settings.driftMotionMode.label}",
+              color = SoftFrostText,
+            )
+          }
+
           Box {
             OutlinedButton(
               onClick = { showColorDropdown = true },
@@ -884,7 +955,7 @@ private fun TvPreviewPhoneStage(
                     Text(
                       text = option.label,
                       style = MaterialTheme.typography.bodyMedium,
-                      color = if (isSelected) plasma.primaryAccent else SoftFrostText,
+                      color = SoftFrostText,
                       fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                     )
                   },
@@ -894,7 +965,7 @@ private fun TvPreviewPhoneStage(
                         Icon(
                           imageVector = Icons.Rounded.Check,
                           contentDescription = "Selected",
-                          tint = plasma.primaryAccent,
+                          tint = AuroraCyan,
                         )
                       }
                     } else {
@@ -984,296 +1055,361 @@ private fun ScaledTvViewport(
 }
 
 @Composable
+private fun ScaledContentBox(
+  scale: Float,
+  modifier: Modifier = Modifier,
+  content: @Composable () -> Unit,
+) {
+  Layout(
+    content = content,
+    modifier = modifier,
+  ) { measurables, constraints ->
+    val placeables = measurables.map { it.measure(constraints) }
+    val rawW = placeables.maxOfOrNull { it.width } ?: 0
+    val rawH = placeables.maxOfOrNull { it.height } ?: 0
+    val scaledW = (rawW * scale).roundToInt().coerceAtLeast(1)
+    val scaledH = (rawH * scale).roundToInt().coerceAtLeast(1)
+
+    layout(scaledW, scaledH) {
+      placeables.forEach { placeable ->
+        placeable.placeWithLayer(0, 0) {
+          transformOrigin = TransformOrigin(0f, 0f)
+          scaleX = scale
+          scaleY = scale
+        }
+      }
+    }
+  }
+}
+
+@Composable
 private fun ScreensaverWeatherCanvas(
   snapshot: WeatherSnapshot,
   settings: UserSettings,
   clockDisplay: ClockDisplay,
   plasma: PlasmaShieldState,
   forceTvWide: Boolean,
+  onUpdateDriftBounds: (Float, Float) -> Unit,
 ) {
-  // Reserve safe edge margin larger than max drift so drifting elements never clip
-  val safeHorizontalPadding = settings.driftIntensity.maxOffsetDp.dp + 6.dp
   val showAlertsBanner = settings.showSevereWeatherAlerts && snapshot.alerts.isNotEmpty()
   val show7Day = settings.show7DayForecast
   val show24Hour = settings.show24HourForecast
+  val isHeroOnly = !show7Day && !show24Hour
+  val isDvdBounce = settings.driftMotionMode == DriftMotionMode.DVD_BOUNCE
+  val contentScale = if (isDvdBounce) 0.80f else 1.0f
 
   BoxWithConstraints(
     modifier =
       Modifier.fillMaxSize()
         .then(if (forceTvWide) Modifier else Modifier.safeDrawingPadding())
-        .padding(horizontal = safeHorizontalPadding),
+        .padding(horizontal = 6.dp, vertical = 6.dp),
+    contentAlignment = Alignment.Center,
   ) {
-      val isTvWide = forceTvWide || maxWidth >= 600.dp
-      val isShortLandscape = isTvWide && maxHeight < 470.dp
-      val safeVerticalPadding =
-        if (isShortLandscape) {
-          (settings.driftIntensity.maxOffsetDp * 0.40f).dp + 4.dp
-        } else {
-          (settings.driftIntensity.maxOffsetDp * 0.65f).dp + 6.dp
-        }
+    val density = LocalDensity.current
+    val stageWidthDp = maxWidth.value
+    val stageHeightDp = maxHeight.value
+    val isTvWide = forceTvWide || maxWidth >= 600.dp
+    val isShortLandscape = isTvWide && maxHeight < 470.dp
 
-      Column(
+    var renderedSizePx by remember { mutableStateOf(IntSize.Zero) }
+
+    val freeX =
+      if (renderedSizePx.width > 0) {
+        ((stageWidthDp - with(density) { renderedSizePx.width.toDp().value }) / 2f - 4f)
+          .coerceAtLeast(1f)
+      } else {
+        settings.driftIntensity.maxOffsetDp
+      }
+    val freeY =
+      if (renderedSizePx.height > 0) {
+        ((stageHeightDp - with(density) { renderedSizePx.height.toDp().value }) / 2f - 4f)
+          .coerceAtLeast(1f)
+      } else {
+        settings.driftIntensity.maxOffsetDp * 0.65f
+      }
+
+    val targetMaxX =
+      if (isDvdBounce || isHeroOnly) freeX
+      else minOf(freeX, settings.driftIntensity.maxOffsetDp)
+    val targetMaxY =
+      if (isDvdBounce || isHeroOnly) freeY
+      else minOf(
+        freeY,
+        if (isShortLandscape) settings.driftIntensity.maxOffsetDp * 0.45f
+        else settings.driftIntensity.maxOffsetDp * 0.65f,
+      )
+
+    LaunchedEffect(targetMaxX, targetMaxY) {
+      onUpdateDriftBounds(targetMaxX, targetMaxY)
+    }
+
+    // Reserve gentle outer drift margin in Clockwise panel mode; DVD Bounce already shrinks 20%,
+    // and Hero-Only hugs minimal borders so it hits all 4 edges of the TV.
+    val clockwisePanelHPad =
+      if (!isDvdBounce && !isHeroOnly) settings.driftIntensity.maxOffsetDp.dp else 0.dp
+    val clockwisePanelVPad =
+      if (!isDvdBounce && !isHeroOnly) {
+        (if (isShortLandscape) settings.driftIntensity.maxOffsetDp * 0.45f else settings.driftIntensity.maxOffsetDp * 0.65f).dp
+      } else {
+        0.dp
+      }
+
+    // When both 7-Day and 24-Hour are OFF, show any active alert banner pinned at top so Hero keeps minimal bounds
+    if (showAlertsBanner && isHeroOnly) {
+      SevereWeatherAlertBanner(
+        alerts = snapshot.alerts,
+        plasma = plasma,
+        isCompact = !isTvWide || isShortLandscape,
         modifier =
-          Modifier.fillMaxSize()
-            .padding(vertical = safeVerticalPadding)
-            .offset(x = plasma.primaryOffsetX, y = plasma.primaryOffsetY),
-      ) {
-        if (showAlertsBanner) {
-          SevereWeatherAlertBanner(
-            alerts = snapshot.alerts,
-            plasma = plasma,
-            isCompact = !isTvWide || isShortLandscape,
-            modifier = Modifier.fillMaxWidth(),
-          )
-          Spacer(modifier = Modifier.height(if (isShortLandscape) 6.dp else 10.dp))
-        }
+          Modifier.align(Alignment.TopCenter)
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+      )
+    }
 
-        if (isTvWide) {
-          when {
-            show7Day && show24Hour -> {
-              // Standard 60 / 40 split: Hero Left + 7-Day Right | 24-Hour Bottom
-              Row(
-                modifier = Modifier.weight(0.60f).fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-              ) {
-                Box(
-                  modifier = Modifier.weight(0.90f).padding(start = 2.dp, end = 10.dp),
-                  contentAlignment = Alignment.Center,
-                ) {
-                  HeroWeatherCluster(
-                    snapshot = snapshot,
-                    clockDisplay = clockDisplay,
-                    plasma = plasma,
-                    isCompact = isShortLandscape,
-                    scaleMode = HeroScaleMode.STANDARD,
-                  )
-                }
-
-                MultiDayForecastPanel(
-                  days = snapshot.dailyForecasts,
-                  plasma = plasma,
-                  isCompact = false,
-                  isShortHeight = isShortLandscape,
-                  fillVertical = !isShortLandscape,
-                  expandedVertical = false,
-                  modifier =
-                    Modifier.weight(1.45f)
-                      .then(
-                        if (isShortLandscape) Modifier
-                        else Modifier.fillMaxHeight().padding(top = 8.dp)
-                      ),
-                )
-              }
-
-              Spacer(modifier = Modifier.height(if (isShortLandscape) 6.dp else 10.dp))
-
-              RotatingHourlyCubePanel(
-                snapshot = snapshot,
-                use24Hour = settings.use24HourClock,
-                plasma = plasma,
-                isCompact = false,
-                isShortHeight = isShortLandscape,
-                expandHeight = true,
-                modifier = Modifier.weight(0.40f).fillMaxWidth(),
-              )
-            }
-
-            show7Day && !show24Hour -> {
-              // 24-Hour OFF -> Hero cluster & 7-Day expand to fill the entire height
-              Row(
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-              ) {
-                Box(
-                  modifier = Modifier.weight(0.92f).fillMaxHeight().padding(horizontal = 8.dp),
-                  contentAlignment = Alignment.Center,
-                ) {
-                  HeroWeatherCluster(
-                    snapshot = snapshot,
-                    clockDisplay = clockDisplay,
-                    plasma = plasma,
-                    isCompact = isShortLandscape,
-                    scaleMode = HeroScaleMode.EXPANDED_WITH_PANEL,
-                  )
-                }
-
-                MultiDayForecastPanel(
-                  days = snapshot.dailyForecasts,
-                  plasma = plasma,
-                  isCompact = false,
-                  isShortHeight = isShortLandscape,
-                  fillVertical = true,
-                  expandedVertical = !isShortLandscape,
-                  modifier =
-                    Modifier.weight(1.45f)
-                      .fillMaxHeight()
-                      .padding(top = if (isShortLandscape) 2.dp else 6.dp),
-                )
-              }
-            }
-
-            !show7Day && show24Hour -> {
-              // 7-Day OFF -> Hero cluster centered above 24-Hour strip
-              Box(
-                modifier = Modifier.weight(0.60f).fillMaxWidth(),
-                contentAlignment = Alignment.Center,
-              ) {
-                HeroWeatherCluster(
-                  snapshot = snapshot,
-                  clockDisplay = clockDisplay,
-                  plasma = plasma,
-                  isCompact = isShortLandscape,
-                  scaleMode = HeroScaleMode.WIDE_CENTERED,
-                )
-              }
-
-              Spacer(modifier = Modifier.height(if (isShortLandscape) 6.dp else 10.dp))
-
-              RotatingHourlyCubePanel(
-                snapshot = snapshot,
-                use24Hour = settings.use24HourClock,
-                plasma = plasma,
-                isCompact = false,
-                isShortHeight = isShortLandscape,
-                expandHeight = true,
-                modifier = Modifier.weight(0.40f).fillMaxWidth(),
-              )
-            }
-
-            else -> {
-              // Both 7-Day & 24-Hour OFF -> Hero centered vertically & horizontally and expanded to max space
-              Box(
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-                contentAlignment = Alignment.Center,
-              ) {
-                HeroWeatherCluster(
-                  snapshot = snapshot,
-                  clockDisplay = clockDisplay,
-                  plasma = plasma,
-                  isCompact = isShortLandscape,
-                  scaleMode = HeroScaleMode.FULL_MAX,
-                  modifier = Modifier.fillMaxSize(),
-                )
-              }
-            }
+    ScaledContentBox(
+      scale = contentScale,
+      modifier =
+        Modifier.offset(x = plasma.primaryOffsetX, y = plasma.primaryOffsetY)
+          .onSizeChanged { renderedSizePx = it },
+    ) {
+      if (isHeroOnly) {
+        // Both 7-Day & 24-Hour OFF -> tight-wrap Hero with minimal borders for maximum TV-edge travel
+        HeroWeatherCluster(
+          snapshot = snapshot,
+          clockDisplay = clockDisplay,
+          plasma = plasma,
+          isCompact = !isTvWide || isShortLandscape,
+          scaleMode = HeroScaleMode.FULL_MAX,
+          tightWrap = true,
+          modifier = Modifier.wrapContentSize(),
+        )
+      } else {
+        val fillsFullHeight = show24Hour
+        Column(
+          modifier =
+            Modifier.fillMaxWidth()
+              .then(if (fillsFullHeight) Modifier.fillMaxHeight() else Modifier)
+              .padding(horizontal = clockwisePanelHPad, vertical = clockwisePanelVPad),
+        ) {
+          if (showAlertsBanner) {
+            SevereWeatherAlertBanner(
+              alerts = snapshot.alerts,
+              plasma = plasma,
+              isCompact = !isTvWide || isShortLandscape,
+              modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(modifier = Modifier.height(if (isShortLandscape) 6.dp else 10.dp))
           }
-        } else {
-          // Compact / Portrait Non-Scrollable Layout
-          when {
-            show7Day && show24Hour -> {
-              Column(
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-                verticalArrangement = Arrangement.SpaceBetween,
-              ) {
-                HeroWeatherCluster(
-                  snapshot = snapshot,
-                  clockDisplay = clockDisplay,
-                  plasma = plasma,
-                  isCompact = true,
-                  scaleMode = HeroScaleMode.STANDARD,
-                  modifier = Modifier.fillMaxWidth(),
-                )
 
-                MultiDayForecastPanel(
-                  days = snapshot.dailyForecasts,
-                  plasma = plasma,
-                  isCompact = true,
-                  isShortHeight = false,
-                  fillVertical = false,
-                  expandedVertical = false,
-                  modifier = Modifier.fillMaxWidth(),
-                )
+          if (isTvWide) {
+            when {
+              show7Day && show24Hour -> {
+                // Standard 60 / 40 split: Hero Left + 7-Day Right | 24-Hour Bottom
+                Row(
+                  modifier = Modifier.weight(0.60f).fillMaxWidth(),
+                  verticalAlignment = Alignment.CenterVertically,
+                ) {
+                  Box(
+                    modifier = Modifier.weight(0.90f).padding(start = 2.dp, end = 10.dp),
+                    contentAlignment = Alignment.Center,
+                  ) {
+                    HeroWeatherCluster(
+                      snapshot = snapshot,
+                      clockDisplay = clockDisplay,
+                      plasma = plasma,
+                      isCompact = isShortLandscape,
+                      scaleMode = HeroScaleMode.STANDARD,
+                    )
+                  }
+
+                  MultiDayForecastPanel(
+                    days = snapshot.dailyForecasts,
+                    plasma = plasma,
+                    isCompact = false,
+                    isShortHeight = isShortLandscape,
+                    fillVertical = !isShortLandscape,
+                    expandedVertical = false,
+                    modifier =
+                      Modifier.weight(1.45f)
+                        .then(
+                          if (isShortLandscape) Modifier
+                          else Modifier.fillMaxHeight().padding(top = 8.dp)
+                        ),
+                  )
+                }
+
+                Spacer(modifier = Modifier.height(if (isShortLandscape) 6.dp else 10.dp))
 
                 RotatingHourlyCubePanel(
                   snapshot = snapshot,
                   use24Hour = settings.use24HourClock,
                   plasma = plasma,
-                  isCompact = true,
-                  isShortHeight = false,
-                  expandHeight = false,
-                  modifier = Modifier.fillMaxWidth(),
+                  isCompact = false,
+                  isShortHeight = isShortLandscape,
+                  expandHeight = true,
+                  modifier = Modifier.weight(0.40f).fillMaxWidth(),
                 )
               }
-            }
 
-            show7Day && !show24Hour -> {
-              Column(
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-              ) {
-                Box(
-                  modifier = Modifier.weight(0.46f).fillMaxWidth(),
-                  contentAlignment = Alignment.Center,
+              show7Day && !show24Hour -> {
+                // 24-Hour OFF -> Keep Hero & 7-Day side-by-side at matching compact height with minimal vertical spacing
+                Row(
+                  modifier = Modifier.fillMaxWidth(),
+                  verticalAlignment = Alignment.CenterVertically,
                 ) {
-                  HeroWeatherCluster(
-                    snapshot = snapshot,
-                    clockDisplay = clockDisplay,
+                  Box(
+                    modifier = Modifier.weight(0.90f).padding(start = 2.dp, end = 10.dp),
+                    contentAlignment = Alignment.Center,
+                  ) {
+                    HeroWeatherCluster(
+                      snapshot = snapshot,
+                      clockDisplay = clockDisplay,
+                      plasma = plasma,
+                      isCompact = isShortLandscape,
+                      scaleMode = HeroScaleMode.STANDARD,
+                    )
+                  }
+
+                  MultiDayForecastPanel(
+                    days = snapshot.dailyForecasts,
                     plasma = plasma,
-                    isCompact = true,
-                    scaleMode = HeroScaleMode.EXPANDED_WITH_PANEL,
-                    modifier = Modifier.fillMaxWidth(),
+                    isCompact = false,
+                    isShortHeight = isShortLandscape,
+                    fillVertical = false,
+                    expandedVertical = false,
+                    modifier = Modifier.weight(1.45f),
                   )
                 }
-
-                MultiDayForecastPanel(
-                  days = snapshot.dailyForecasts,
-                  plasma = plasma,
-                  isCompact = true,
-                  isShortHeight = false,
-                  fillVertical = true,
-                  expandedVertical = true,
-                  modifier = Modifier.weight(0.54f).fillMaxWidth(),
-                )
               }
-            }
 
-            !show7Day && show24Hour -> {
-              Column(
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-              ) {
+              else -> {
+                // 7-Day OFF, 24-Hour ON -> Hero cluster centered cleanly above 24-Hour strip with zero bottom clipping
                 Box(
-                  modifier = Modifier.weight(1f).fillMaxWidth(),
+                  modifier = Modifier.weight(0.62f).fillMaxWidth(),
                   contentAlignment = Alignment.Center,
                 ) {
                   HeroWeatherCluster(
                     snapshot = snapshot,
                     clockDisplay = clockDisplay,
                     plasma = plasma,
-                    isCompact = true,
+                    isCompact = isShortLandscape,
                     scaleMode = HeroScaleMode.WIDE_CENTERED,
-                    modifier = Modifier.fillMaxWidth(),
                   )
                 }
+
+                Spacer(modifier = Modifier.height(if (isShortLandscape) 4.dp else 6.dp))
 
                 RotatingHourlyCubePanel(
                   snapshot = snapshot,
                   use24Hour = settings.use24HourClock,
                   plasma = plasma,
-                  isCompact = true,
-                  isShortHeight = false,
-                  expandHeight = false,
-                  modifier = Modifier.fillMaxWidth(),
+                  isCompact = false,
+                  isShortHeight = isShortLandscape,
+                  expandHeight = true,
+                  modifier = Modifier.weight(0.38f).fillMaxWidth(),
                 )
               }
             }
+          } else {
+            // Compact / Portrait Non-Scrollable Layout
+            when {
+              show7Day && show24Hour -> {
+                Column(
+                  modifier = Modifier.weight(1f).fillMaxWidth(),
+                  verticalArrangement = Arrangement.SpaceBetween,
+                ) {
+                  HeroWeatherCluster(
+                    snapshot = snapshot,
+                    clockDisplay = clockDisplay,
+                    plasma = plasma,
+                    isCompact = true,
+                    scaleMode = HeroScaleMode.STANDARD,
+                    modifier = Modifier.fillMaxWidth(),
+                  )
 
-            else -> {
-              Box(
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-                contentAlignment = Alignment.Center,
-              ) {
-                HeroWeatherCluster(
-                  snapshot = snapshot,
-                  clockDisplay = clockDisplay,
-                  plasma = plasma,
-                  isCompact = true,
-                  scaleMode = HeroScaleMode.FULL_MAX,
-                  modifier = Modifier.fillMaxSize(),
-                )
+                  MultiDayForecastPanel(
+                    days = snapshot.dailyForecasts,
+                    plasma = plasma,
+                    isCompact = true,
+                    isShortHeight = false,
+                    fillVertical = false,
+                    expandedVertical = false,
+                    modifier = Modifier.fillMaxWidth(),
+                  )
+
+                  RotatingHourlyCubePanel(
+                    snapshot = snapshot,
+                    use24Hour = settings.use24HourClock,
+                    plasma = plasma,
+                    isCompact = true,
+                    isShortHeight = false,
+                    expandHeight = false,
+                    modifier = Modifier.fillMaxWidth(),
+                  )
+                }
+              }
+
+              show7Day && !show24Hour -> {
+                Column(
+                  modifier = Modifier.fillMaxWidth(),
+                  verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                  HeroWeatherCluster(
+                    snapshot = snapshot,
+                    clockDisplay = clockDisplay,
+                    plasma = plasma,
+                    isCompact = true,
+                    scaleMode = HeroScaleMode.STANDARD,
+                    modifier = Modifier.fillMaxWidth(),
+                  )
+
+                  MultiDayForecastPanel(
+                    days = snapshot.dailyForecasts,
+                    plasma = plasma,
+                    isCompact = true,
+                    isShortHeight = false,
+                    fillVertical = false,
+                    expandedVertical = false,
+                    modifier = Modifier.fillMaxWidth(),
+                  )
+                }
+              }
+
+              else -> {
+                // 7-Day OFF, 24-Hour ON (Compact)
+                Column(
+                  modifier = Modifier.weight(1f).fillMaxWidth(),
+                  verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                  Box(
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    contentAlignment = Alignment.Center,
+                  ) {
+                    HeroWeatherCluster(
+                      snapshot = snapshot,
+                      clockDisplay = clockDisplay,
+                      plasma = plasma,
+                      isCompact = true,
+                      scaleMode = HeroScaleMode.WIDE_CENTERED,
+                      modifier = Modifier.fillMaxWidth(),
+                    )
+                  }
+
+                  RotatingHourlyCubePanel(
+                    snapshot = snapshot,
+                    use24Hour = settings.use24HourClock,
+                    plasma = plasma,
+                    isCompact = true,
+                    isShortHeight = false,
+                    expandHeight = false,
+                    modifier = Modifier.fillMaxWidth(),
+                  )
+                }
               }
             }
           }
+        }
       }
     }
   }
@@ -1370,44 +1506,25 @@ private fun HeroWeatherCluster(
   plasma: PlasmaShieldState,
   isCompact: Boolean,
   scaleMode: HeroScaleMode = HeroScaleMode.STANDARD,
+  tightWrap: Boolean = false,
   modifier: Modifier = Modifier,
 ) {
-  if (scaleMode == HeroScaleMode.FULL_MAX) {
-    BoxWithConstraints(
-      modifier = modifier,
-      contentAlignment = Alignment.Center,
-    ) {
-      val heightScale =
-        if (isCompact) (maxHeight.value / 420f).coerceIn(0.68f, 1.10f)
-        else (maxHeight.value / 430f).coerceIn(0.66f, 1.05f)
-      HeroWeatherClusterContent(
-        snapshot = snapshot,
-        clockDisplay = clockDisplay,
-        plasma = plasma,
-        isCompact = isCompact,
-        scaleFactor = (if (isCompact) 1.32f else 1.56f) * heightScale,
-        detailsMaxWidthFraction = 0.88f,
-        modifier = Modifier.fillMaxWidth(),
-      )
+  val factor =
+    when (scaleMode) {
+      HeroScaleMode.STANDARD -> 1f
+      HeroScaleMode.EXPANDED_WITH_PANEL -> if (isCompact) 1.10f else 1.15f
+      HeroScaleMode.WIDE_CENTERED -> 1f
+      HeroScaleMode.FULL_MAX -> if (isCompact) 1.10f else 1.24f
     }
-  } else {
-    val factor =
-      when (scaleMode) {
-        HeroScaleMode.STANDARD -> 1f
-        HeroScaleMode.EXPANDED_WITH_PANEL -> if (isCompact) 1.15f else 1.24f
-        HeroScaleMode.WIDE_CENTERED -> if (isCompact) 1.12f else 1.15f
-        HeroScaleMode.FULL_MAX -> 1.5f
-      }
-    HeroWeatherClusterContent(
-      snapshot = snapshot,
-      clockDisplay = clockDisplay,
-      plasma = plasma,
-      isCompact = isCompact,
-      scaleFactor = factor,
-      detailsMaxWidthFraction = if (scaleMode == HeroScaleMode.WIDE_CENTERED) 0.85f else 1f,
-      modifier = modifier,
-    )
-  }
+  HeroWeatherClusterContent(
+    snapshot = snapshot,
+    clockDisplay = clockDisplay,
+    plasma = plasma,
+    isCompact = isCompact,
+    scaleFactor = factor,
+    tightWrap = tightWrap,
+    modifier = modifier,
+  )
 }
 
 @Composable
@@ -1417,7 +1534,7 @@ private fun HeroWeatherClusterContent(
   plasma: PlasmaShieldState,
   isCompact: Boolean,
   scaleFactor: Float,
-  detailsMaxWidthFraction: Float,
+  tightWrap: Boolean = false,
   modifier: Modifier = Modifier,
 ) {
   val citySp = ((if (isCompact) 24f else 34f) * scaleFactor).sp
@@ -1437,7 +1554,7 @@ private fun HeroWeatherClusterContent(
   Column(
     modifier = modifier,
     horizontalAlignment = Alignment.CenterHorizontally,
-    verticalArrangement = Arrangement.spacedBy((if (isCompact) 2f else 4f * scaleFactor).dp),
+    verticalArrangement = Arrangement.spacedBy((if (isCompact) 1f else 2f * scaleFactor).dp),
   ) {
     // Location alone on top line | Day/Date + Clock below with matching fonts
     Column(
@@ -1534,7 +1651,12 @@ private fun HeroWeatherClusterContent(
           style =
             MaterialTheme.typography.displayLarge.copy(
               fontSize = tempSp,
-              lineHeight = tempSp,
+              lineHeight = (tempSp.value * 0.86f).sp,
+              lineHeightStyle =
+                LineHeightStyle(
+                  alignment = LineHeightStyle.Alignment.Center,
+                  trim = LineHeightStyle.Trim.Both,
+                ),
             ),
           color = plasma.primaryTextColor,
           maxLines = 1,
@@ -1548,20 +1670,28 @@ private fun HeroWeatherClusterContent(
               lineHeight = (unitSp.value + 2f).sp,
             ),
           color = plasma.primaryAccent,
-          modifier = Modifier.padding(top = ((if (isCompact) 4f else 8f) * scaleFactor).dp, start = 2.dp),
+          modifier = Modifier.padding(top = ((if (isCompact) 2f else 4f) * scaleFactor).dp, start = 2.dp),
         )
       }
     }
 
     // Stacked Secondary Atmospheric Details: Feels/L/H above Humidity/Wind
+    val detailsContainerModifier =
+      if (tightWrap) Modifier.wrapContentWidth() else Modifier.fillMaxWidth()
+
     BoxWithConstraints(
-      modifier = Modifier.fillMaxWidth(detailsMaxWidthFraction),
+      modifier = detailsContainerModifier,
       contentAlignment = Alignment.Center,
     ) {
+      val density = LocalDensity.current
+      val fallbackMaxPx = with(density) { (360f * scaleFactor).dp.roundToPx() }
+      val effectiveMaxWidthPx =
+        if (constraints.hasBoundedWidth) constraints.maxWidth else fallbackMaxPx
+
       val detailsBaseStyle =
         MaterialTheme.typography.bodyLarge.copy(
           fontSize = detailsSp,
-          lineHeight = (detailsSp.value + 3f).sp,
+          lineHeight = (detailsSp.value + 2f).sp,
         )
 
       val feelsRangeString =
@@ -1577,13 +1707,13 @@ private fun HeroWeatherClusterContent(
         rememberUniformSingleLineFontSize(
           texts = detailStrings,
           style = detailsBaseStyle,
-          maxWidthPx = constraints.maxWidth,
+          maxWidthPx = effectiveMaxWidthPx,
           minFontSize = detailsMinSp,
         )
       val detailsStyle =
         detailsBaseStyle.copy(
           fontSize = uniformDetailsSize,
-          lineHeight = (uniformDetailsSize.value + 3f).sp,
+          lineHeight = (uniformDetailsSize.value + 2f).sp,
         )
 
       val feelsRangeText =
@@ -1611,7 +1741,7 @@ private fun HeroWeatherClusterContent(
         }
 
       Column(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = if (tightWrap) Modifier.width(IntrinsicSize.Max) else Modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy((if (isCompact) 1f else 2f * scaleFactor).dp),
       ) {
@@ -1720,7 +1850,7 @@ private fun MultiDayForecastPanel(
     modifier = modifier.testTag("multiday_forecast_section"),
     shape = RoundedCornerShape(22.dp),
     color = Color.Transparent,
-    border = BorderStroke(1.dp, plasma.secondaryAccent.copy(alpha = 0.22f)),
+    border = null,
   ) {
     Column(
       modifier =
@@ -1829,7 +1959,7 @@ private fun MultiDayForecastPanel(
               (availableHeightDp - cardVertPadDp - textBudgetDp - spacingBudgetDp).coerceAtLeast(22.dp)
             minOf(widthBasedGlyphDp, heightBasedGlyphDp)
           } else {
-            widthBasedGlyphDp.coerceAtMost(38.dp)
+            widthBasedGlyphDp.coerceAtMost(if (cardCompact) 38.dp else 60.dp)
           }
 
         Row(
@@ -1879,7 +2009,7 @@ private fun DailyForecastCard(
     modifier = modifier,
     shape = RoundedCornerShape(16.dp),
     color = Color.Transparent,
-    border = BorderStroke(width = 1.dp, color = plasma.secondaryTextColor.copy(alpha = 0.16f)),
+    border = null,
   ) {
     Column(
       modifier =
