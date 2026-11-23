@@ -71,6 +71,12 @@ private val RainbowBounceSpectrum =
 
 private const val RAINBOW_TIMER_MS_PER_COLOR = 12_000L
 
+internal fun motionModeContentScale(mode: DriftMotionMode): Float =
+  when (mode) {
+    DriftMotionMode.CLOCKWISE -> 0.90f
+    DriftMotionMode.DVD_BOUNCE -> 0.80f
+  }
+
 internal fun computeClockwisePerimeterOffset(
   progress: Double,
   maxX: Double,
@@ -163,7 +169,7 @@ fun rememberPlasmaShieldState(
         val maxX = currentMaxXDp.toDouble().coerceAtLeast(1.0)
         val maxY = currentMaxYDp.toDouble().coerceAtLeast(1.0)
 
-        // Wide travel (DVD 20% shrink or Hero-only TV edge travel) uses smooth visible screen traversal;
+        // Wide travel (90% Clockwise, 80% DVD Bounce, or Hero-only TV edge travel) uses smooth visible screen traversal;
         // tight anti-burn-in drift keeps gentle pixel shift scaled cleanly by 1x/2x/4x/6x.
         val isWideTravel = maxX > 30.0 || maxY > 24.0
         val speedX =

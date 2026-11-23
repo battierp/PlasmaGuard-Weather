@@ -7,7 +7,6 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -76,6 +75,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
@@ -205,20 +205,31 @@ fun SettingsOverlay(
               color = SoftFrostText,
             )
           }
+          var closeFocused by remember { mutableStateOf(false) }
+          val closeScale by animateFloatAsState(targetValue = if (closeFocused) 1.08f else 1f, label = "close_scale")
           IconButton(
             onClick = {
               keyboardController?.hide()
               onDismiss()
             },
             modifier =
-              Modifier.minimumInteractiveComponentSize()
+              Modifier.scale(closeScale)
+                .minimumInteractiveComponentSize()
+                .clip(CircleShape)
+                .background(if (closeFocused) lerp(ElevatedSurface, BrightGold, 0.20f) else Color.Transparent, CircleShape)
+                .border(
+                  width = if (closeFocused) 3.dp else 1.dp,
+                  color = if (closeFocused) BrightGold else SubtleOutline,
+                  shape = CircleShape,
+                )
                 .focusRequester(closeButtonFocusRequester)
+                .onFocusChanged { closeFocused = it.isFocused || it.hasFocus }
                 .testTag("close_settings_button"),
           ) {
             Icon(
               imageVector = Icons.Rounded.Close,
               contentDescription = "Resume screensaver",
-              tint = SoftFrostText,
+              tint = if (closeFocused) BrightGold else SoftFrostText,
             )
           }
         }
@@ -272,16 +283,18 @@ fun SettingsOverlay(
                 OutlinedTextFieldDefaults.colors(
                   focusedTextColor = SoftFrostText,
                   unfocusedTextColor = SoftFrostText,
-                  focusedBorderColor = accentColor,
+                  focusedBorderColor = BrightGold,
                   unfocusedBorderColor = SubtleOutline,
                   focusedContainerColor = DeepCardSurface,
                   unfocusedContainerColor = DeepCardSurface,
                 ),
             )
           } else {
+            val searchScale by animateFloatAsState(targetValue = if (searchBoxFocused) 1.015f else 1f, label = "search_scale")
             Surface(
               modifier =
                 Modifier.weight(1f)
+                  .scale(searchScale)
                   .defaultMinSize(minHeight = 56.dp)
                   .clip(RoundedCornerShape(14.dp))
                   .focusRequester(searchBoxFocusRequester)
@@ -289,11 +302,11 @@ fun SettingsOverlay(
                   .clickable { isSearchEditing = true }
                   .testTag("city_search_input"),
               shape = RoundedCornerShape(14.dp),
-              color = DeepCardSurface,
+              color = if (searchBoxFocused) lerp(DeepCardSurface, BrightGold, 0.16f) else DeepCardSurface,
               border =
                 BorderStroke(
-                  width = if (searchBoxFocused) 2.dp else 1.dp,
-                  color = if (searchBoxFocused) accentColor else SubtleOutline,
+                  width = if (searchBoxFocused) 3.dp else 1.dp,
+                  color = if (searchBoxFocused) BrightGold else SubtleOutline,
                 ),
             ) {
               Box(
@@ -315,6 +328,8 @@ fun SettingsOverlay(
               }
             }
           }
+          var searchBtnFocused by remember { mutableStateOf(false) }
+          val searchBtnScale by animateFloatAsState(targetValue = if (searchBtnFocused) 1.06f else 1f, label = "search_btn_scale")
           Button(
             onClick = {
               isSearchEditing = false
@@ -322,8 +337,13 @@ fun SettingsOverlay(
               onSearchSubmit()
             },
             enabled = !citySearchState.isSearching,
-            modifier = Modifier.height(54.dp).testTag("city_search_button"),
+            modifier =
+              Modifier.height(54.dp)
+                .scale(searchBtnScale)
+                .onFocusChanged { searchBtnFocused = it.isFocused || it.hasFocus }
+                .testTag("city_search_button"),
             shape = RoundedCornerShape(14.dp),
+            border = if (searchBtnFocused) BorderStroke(3.dp, BrightGold) else null,
             colors = ButtonDefaults.buttonColors(containerColor = accentColor, contentColor = ObsidianBlack),
           ) {
             if (citySearchState.isSearching) {
@@ -359,14 +379,13 @@ fun SettingsOverlay(
                   Modifier.fillMaxWidth()
                     .minimumInteractiveComponentSize()
                     .clip(RoundedCornerShape(10.dp))
-                    .background(if (focused) ElevatedSurface else Color.Transparent)
+                    .background(if (focused) lerp(ElevatedSurface, BrightGold, 0.16f) else Color.Transparent)
                     .border(
-                      width = if (focused) 1.5.dp else 0.dp,
-                      color = if (focused) accentColor else Color.Transparent,
+                      width = if (focused) 3.dp else 0.dp,
+                      color = if (focused) BrightGold else Color.Transparent,
                       shape = RoundedCornerShape(10.dp),
                     )
                     .onFocusChanged { focused = it.isFocused }
-                    .focusable()
                     .clickable { onSelectCity(city) }
                     .padding(horizontal = 12.dp, vertical = 10.dp)
                     .testTag("city_result_item"),
@@ -540,29 +559,37 @@ fun SettingsOverlay(
           DriftMotionMode.entries.forEach { motionMode ->
             val selected = settings.driftMotionMode == motionMode
             var focused by remember { mutableStateOf(false) }
+            val motionScale by animateFloatAsState(targetValue = if (focused) 1.03f else 1f, label = "motion_scale")
+            val containerColor =
+              when {
+                focused && selected -> lerp(accentColor.copy(alpha = 0.24f), BrightGold, 0.18f)
+                focused -> lerp(ElevatedSurface, BrightGold, 0.16f)
+                selected -> accentColor.copy(alpha = 0.22f)
+                else -> DeepCardSurface
+              }
             Surface(
               modifier =
                 Modifier.weight(1f)
+                  .scale(motionScale)
                   .minimumInteractiveComponentSize()
                   .clip(RoundedCornerShape(12.dp))
                   .onFocusChanged { focused = it.isFocused }
-                  .focusable()
                   .clickable { onSelectDriftMotionMode(motionMode) }
                   .testTag("motion_mode_${motionMode.name.lowercase()}_chip"),
               shape = RoundedCornerShape(12.dp),
-              color =
-                when {
-                  selected -> accentColor.copy(alpha = 0.24f)
-                  focused -> ElevatedSurface
-                  else -> DeepCardSurface
-                },
+              color = containerColor,
               border =
                 BorderStroke(
-                  width = if (focused || selected) 2.dp else 1.dp,
+                  width =
+                    when {
+                      focused -> 3.dp
+                      selected -> 1.5.dp
+                      else -> 1.dp
+                    },
                   color =
                     when {
-                      focused -> accentColor
-                      selected -> accentColor.copy(alpha = 0.80f)
+                      focused -> BrightGold
+                      selected -> accentColor.copy(alpha = 0.72f)
                       else -> SubtleOutline
                     },
                 ),
@@ -584,7 +611,7 @@ fun SettingsOverlay(
                 Text(
                   text = motionMode.label,
                   style = MaterialTheme.typography.labelLarge,
-                  fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                  fontWeight = if (selected || focused) FontWeight.SemiBold else FontWeight.Normal,
                   color = SoftFrostText,
                 )
               }
@@ -593,7 +620,7 @@ fun SettingsOverlay(
         }
         Text(
           text =
-            "Clockwise glides continuously along the outer edges; DVD Bounce shrinks elements by 20% and bounces off edges.",
+            "Clockwise scales elements to 90% and glides along the outer edges; DVD Bounce scales to 80% and bounces off edges.",
           style = MaterialTheme.typography.labelSmall,
           color = SoftFrostText.copy(alpha = 0.78f),
         )
@@ -638,24 +665,45 @@ fun SettingsOverlay(
           horizontalArrangement = Arrangement.spacedBy(10.dp),
           verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+          var refreshFocused by remember { mutableStateOf(false) }
+          val refreshScale by animateFloatAsState(targetValue = if (refreshFocused) 1.05f else 1f, label = "refresh_scale")
           OutlinedButton(
             onClick = onRefreshWeather,
-            modifier = Modifier.minimumInteractiveComponentSize().testTag("refresh_weather_button"),
+            modifier =
+              Modifier.scale(refreshScale)
+                .minimumInteractiveComponentSize()
+                .onFocusChanged { refreshFocused = it.isFocused || it.hasFocus }
+                .testTag("refresh_weather_button"),
             shape = RoundedCornerShape(14.dp),
-            border = BorderStroke(1.dp, SubtleOutline),
+            border =
+              BorderStroke(
+                width = if (refreshFocused) 3.dp else 1.dp,
+                color = if (refreshFocused) BrightGold else SubtleOutline,
+              ),
+            colors =
+              ButtonDefaults.outlinedButtonColors(
+                containerColor = if (refreshFocused) lerp(DeepCardSurface, BrightGold, 0.16f) else Color.Transparent,
+              ),
           ) {
             Icon(imageVector = Icons.Rounded.Refresh, contentDescription = null, tint = accentColor)
             Spacer(modifier = Modifier.width(8.dp))
             Text("Refresh Weather", color = SoftFrostText)
           }
 
+          var resumeFocused by remember { mutableStateOf(false) }
+          val resumeScale by animateFloatAsState(targetValue = if (resumeFocused) 1.05f else 1f, label = "resume_scale")
           Button(
             onClick = {
               keyboardController?.hide()
               onDismiss()
             },
-            modifier = Modifier.minimumInteractiveComponentSize().testTag("resume_screensaver_button"),
+            modifier =
+              Modifier.scale(resumeScale)
+                .minimumInteractiveComponentSize()
+                .onFocusChanged { resumeFocused = it.isFocused || it.hasFocus }
+                .testTag("resume_screensaver_button"),
             shape = RoundedCornerShape(14.dp),
+            border = if (resumeFocused) BorderStroke(3.dp, BrightGold) else null,
             colors = ButtonDefaults.buttonColors(containerColor = accentColor, contentColor = ObsidianBlack),
           ) {
             Icon(imageVector = Icons.Rounded.PlayArrow, contentDescription = null)
@@ -685,37 +733,46 @@ private fun SavedLocationPill(
 ) {
   var selectFocused by remember { mutableStateOf(false) }
   var removeFocused by remember { mutableStateOf(false) }
+  val pillScale by
+    animateFloatAsState(
+      targetValue = if (selectFocused || removeFocused) 1.04f else 1f,
+      label = "saved_pill_scale",
+    )
   val bgColor by
     animateColorAsState(
       targetValue =
         when {
           selected -> accentColor.copy(alpha = 0.20f)
-          selectFocused -> ElevatedSurface
           else -> DeepCardSurface
         },
       label = "saved_pill_bg",
     )
-  val borderColor =
+  val outerBorderColor =
     when {
-      selectFocused || removeFocused -> accentColor
       selected -> accentColor.copy(alpha = 0.72f)
       else -> SubtleOutline
     }
 
   Surface(
+    modifier = Modifier.scale(pillScale),
     shape = RoundedCornerShape(12.dp),
     color = bgColor,
-    border = BorderStroke(if (selectFocused || removeFocused) 2.dp else 1.dp, borderColor),
+    border = BorderStroke(if (selected) 1.5.dp else 1.dp, outerBorderColor),
   ) {
     Row(verticalAlignment = Alignment.CenterVertically) {
       Row(
         modifier =
           Modifier.minimumInteractiveComponentSize()
             .clip(RoundedCornerShape(12.dp))
+            .background(if (selectFocused) lerp(ElevatedSurface, BrightGold, 0.18f) else Color.Transparent)
+            .border(
+              width = if (selectFocused) 3.dp else 0.dp,
+              color = if (selectFocused) BrightGold else Color.Transparent,
+              shape = RoundedCornerShape(12.dp),
+            )
             .onFocusChanged { selectFocused = it.isFocused }
-            .focusable()
             .clickable(onClick = onSelect)
-            .padding(start = 12.dp, end = if (canRemove) 6.dp else 12.dp, top = 8.dp, bottom = 8.dp)
+            .padding(start = 12.dp, end = if (canRemove) 8.dp else 12.dp, top = 8.dp, bottom = 8.dp)
             .testTag("saved_location_chip"),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -740,14 +797,20 @@ private fun SavedLocationPill(
           onClick = onRemove,
           modifier =
             Modifier.minimumInteractiveComponentSize()
-              .onFocusChanged { removeFocused = it.isFocused }
-              .focusable()
+              .clip(CircleShape)
+              .background(if (removeFocused) lerp(ElevatedSurface, BrightGold, 0.18f) else Color.Transparent, CircleShape)
+              .border(
+                width = if (removeFocused) 3.dp else 0.dp,
+                color = if (removeFocused) BrightGold else Color.Transparent,
+                shape = CircleShape,
+              )
+              .onFocusChanged { removeFocused = it.isFocused || it.hasFocus }
               .testTag("remove_saved_location_button"),
         ) {
           Icon(
             imageVector = Icons.Rounded.Close,
             contentDescription = "Remove ${location.shortLabel}",
-            tint = if (removeFocused) BrightCoral else SoftFrostText.copy(alpha = 0.78f),
+            tint = if (removeFocused) BrightGold else SoftFrostText.copy(alpha = 0.78f),
             modifier = Modifier.size(16.dp),
           )
         }
@@ -782,16 +845,17 @@ private fun TvSelectableChip(
     animateColorAsState(
       targetValue =
         when {
+          focused && selected -> lerp(accentColor.copy(alpha = 0.22f), BrightGold, 0.18f)
+          focused -> lerp(ElevatedSurface, BrightGold, 0.18f)
           selected -> accentColor.copy(alpha = 0.22f)
-          focused -> ElevatedSurface
           else -> DeepCardSurface
         },
       label = "chip_bg",
     )
   val borderColor =
     when {
-      focused -> accentColor
-      selected -> accentColor.copy(alpha = 0.7f)
+      focused -> BrightGold
+      selected -> accentColor.copy(alpha = 0.72f)
       else -> SubtleOutline
     }
 
@@ -801,12 +865,20 @@ private fun TvSelectableChip(
         .minimumInteractiveComponentSize()
         .clip(RoundedCornerShape(12.dp))
         .onFocusChanged { focused = it.isFocused }
-        .focusable()
         .clickable(onClick = onClick)
         .testTag(testTag),
     shape = RoundedCornerShape(12.dp),
     color = bgColor,
-    border = BorderStroke(if (focused) 2.dp else 1.dp, borderColor),
+    border =
+      BorderStroke(
+        width =
+          when {
+            focused -> 3.dp
+            selected -> 1.5.dp
+            else -> 1.dp
+          },
+        color = borderColor,
+      ),
   ) {
     Row(
       modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
@@ -817,13 +889,19 @@ private fun TvSelectableChip(
         Icon(
           imageVector = leadingIcon,
           contentDescription = null,
-          tint = if (selected || focused) accentColor else MutedSlateText,
+          tint =
+            when {
+              focused -> BrightGold
+              selected -> accentColor
+              else -> MutedSlateText
+            },
           modifier = Modifier.size(16.dp),
         )
       }
       Text(
         text = label,
         style = MaterialTheme.typography.labelLarge,
+        fontWeight = if (focused || selected) FontWeight.SemiBold else FontWeight.Normal,
         color = if (selected || focused) SoftFrostText else SoftFrostText.copy(alpha = 0.85f),
       )
     }
@@ -838,23 +916,24 @@ private fun TextColorDropdown(
 ) {
   var expanded by remember { mutableStateOf(false) }
   var focused by remember { mutableStateOf(false) }
+  val dropdownScale by animateFloatAsState(targetValue = if (focused) 1.015f else 1f, label = "dropdown_scale")
 
   Box(modifier = Modifier.fillMaxWidth()) {
     Surface(
       modifier =
         Modifier.fillMaxWidth()
+          .scale(dropdownScale)
           .minimumInteractiveComponentSize()
           .clip(RoundedCornerShape(14.dp))
           .onFocusChanged { focused = it.isFocused }
-          .focusable()
           .clickable { expanded = true }
           .testTag("text_color_dropdown"),
       shape = RoundedCornerShape(14.dp),
-      color = DeepCardSurface,
+      color = if (focused) lerp(DeepCardSurface, BrightGold, 0.14f) else DeepCardSurface,
       border =
         BorderStroke(
-          width = if (focused || expanded) 2.dp else 1.dp,
-          color = if (focused || expanded) accentColor else SubtleOutline,
+          width = if (focused || expanded) 3.dp else 1.dp,
+          color = if (focused || expanded) BrightGold else SubtleOutline,
         ),
     ) {
       Row(
@@ -889,7 +968,7 @@ private fun TextColorDropdown(
         Icon(
           imageVector = Icons.Rounded.ArrowDropDown,
           contentDescription = "Choose display text color",
-          tint = accentColor,
+          tint = if (focused || expanded) BrightGold else accentColor,
         )
       }
     }
@@ -901,6 +980,7 @@ private fun TextColorDropdown(
     ) {
       TextColorOption.entries.forEach { option ->
         val isSelected = option == selectedOption
+        var itemFocused by remember { mutableStateOf(false) }
         DropdownMenuItem(
           leadingIcon = { TextColorSwatch(option = option) },
           text = {
@@ -913,7 +993,7 @@ private fun TextColorDropdown(
                 },
               style = MaterialTheme.typography.bodyLarge,
               color = SoftFrostText,
-              fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+              fontWeight = if (isSelected || itemFocused) FontWeight.SemiBold else FontWeight.Normal,
             )
           },
           trailingIcon =
@@ -928,7 +1008,20 @@ private fun TextColorDropdown(
             } else {
               null
             },
-          modifier = Modifier.testTag("text_color_option_${option.name.lowercase()}"),
+          modifier =
+            Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+              .clip(RoundedCornerShape(10.dp))
+              .background(
+                if (itemFocused) lerp(ElevatedSurface, BrightGold, 0.20f) else Color.Transparent,
+                RoundedCornerShape(10.dp),
+              )
+              .border(
+                width = if (itemFocused) 3.dp else 0.dp,
+                color = if (itemFocused) BrightGold else Color.Transparent,
+                shape = RoundedCornerShape(10.dp),
+              )
+              .onFocusChanged { itemFocused = it.isFocused || it.hasFocus }
+              .testTag("text_color_option_${option.name.lowercase()}"),
           onClick = {
             onSelectOption(option)
             expanded = false

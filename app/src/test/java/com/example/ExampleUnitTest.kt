@@ -150,4 +150,15 @@ class ExampleUnitTest {
     assertEquals("Poor", aqiCategoryLabel(165))
     assertEquals("N/A", aqiCategoryLabel(null))
   }
+
+  @Test
+  fun `clockwise scales to midpoint 90 percent between full size and 80 percent dvd bounce`() {
+    val fullScale = 1.00f
+    val dvdScale = com.example.ui.components.motionModeContentScale(DriftMotionMode.DVD_BOUNCE)
+    val clockwiseScale = com.example.ui.components.motionModeContentScale(DriftMotionMode.CLOCKWISE)
+
+    assertEquals(0.80f, dvdScale, 0.0001f)
+    assertEquals((fullScale + dvdScale) / 2f, clockwiseScale, 0.0001f)
+    assertEquals(0.90f, clockwiseScale, 0.0001f)
+  }
 }

@@ -1096,7 +1096,7 @@ private fun ScreensaverWeatherCanvas(
   val show24Hour = settings.show24HourForecast
   val isHeroOnly = !show7Day && !show24Hour
   val isDvdBounce = settings.driftMotionMode == DriftMotionMode.DVD_BOUNCE
-  val contentScale = if (isDvdBounce) 0.80f else 1.0f
+  val contentScale = com.example.ui.components.motionModeContentScale(settings.driftMotionMode)
 
   BoxWithConstraints(
     modifier =
@@ -1128,31 +1128,13 @@ private fun ScreensaverWeatherCanvas(
         settings.driftIntensity.maxOffsetDp * 0.65f
       }
 
-    val targetMaxX =
-      if (isDvdBounce || isHeroOnly) freeX
-      else minOf(freeX, settings.driftIntensity.maxOffsetDp)
-    val targetMaxY =
-      if (isDvdBounce || isHeroOnly) freeY
-      else minOf(
-        freeY,
-        if (isShortLandscape) settings.driftIntensity.maxOffsetDp * 0.45f
-        else settings.driftIntensity.maxOffsetDp * 0.65f,
-      )
+    // Both Clockwise (90% scale) and DVD Bounce (80% scale) sweep across all free TV edges
+    val targetMaxX = freeX
+    val targetMaxY = freeY
 
     LaunchedEffect(targetMaxX, targetMaxY) {
       onUpdateDriftBounds(targetMaxX, targetMaxY)
     }
-
-    // Reserve gentle outer drift margin in Clockwise panel mode; DVD Bounce already shrinks 20%,
-    // and Hero-Only hugs minimal borders so it hits all 4 edges of the TV.
-    val clockwisePanelHPad =
-      if (!isDvdBounce && !isHeroOnly) settings.driftIntensity.maxOffsetDp.dp else 0.dp
-    val clockwisePanelVPad =
-      if (!isDvdBounce && !isHeroOnly) {
-        (if (isShortLandscape) settings.driftIntensity.maxOffsetDp * 0.45f else settings.driftIntensity.maxOffsetDp * 0.65f).dp
-      } else {
-        0.dp
-      }
 
     // When both 7-Day and 24-Hour are OFF, show any active alert banner pinned at top so Hero keeps minimal bounds
     if (showAlertsBanner && isHeroOnly) {
@@ -1189,8 +1171,7 @@ private fun ScreensaverWeatherCanvas(
         Column(
           modifier =
             Modifier.fillMaxWidth()
-              .then(if (fillsFullHeight) Modifier.fillMaxHeight() else Modifier)
-              .padding(horizontal = clockwisePanelHPad, vertical = clockwisePanelVPad),
+              .then(if (fillsFullHeight) Modifier.fillMaxHeight() else Modifier),
         ) {
           if (showAlertsBanner) {
             SevereWeatherAlertBanner(
