@@ -598,6 +598,13 @@ fun SettingsOverlay(
               onClick = { onToggleBottomBarTemp24h(!settings.showBottomBarTemp24h) },
             )
             BottomBarBulletToggle(
+              label = if (settings.showBottomBarPrecipitation) "Precipitation: ON" else "Precipitation: OFF",
+              selected = settings.showBottomBarPrecipitation,
+              accentColor = accentColor,
+              testTag = "toggle_bottom_bar_precipitation_chip",
+              onClick = { onToggleBottomBarPrecipitation(!settings.showBottomBarPrecipitation) },
+            )
+            BottomBarBulletToggle(
               label = if (settings.showBottomBarWind) "Wind: ON" else "Wind: OFF",
               selected = settings.showBottomBarWind,
               accentColor = accentColor,
@@ -610,13 +617,6 @@ fun SettingsOverlay(
               accentColor = accentColor,
               testTag = "toggle_bottom_bar_air_quality_chip",
               onClick = { onToggleBottomBarAirQuality(!settings.showBottomBarAirQuality) },
-            )
-            BottomBarBulletToggle(
-              label = if (settings.showBottomBarPrecipitation) "Precipitation: ON" else "Precipitation: OFF",
-              selected = settings.showBottomBarPrecipitation,
-              accentColor = accentColor,
-              testTag = "toggle_bottom_bar_precipitation_chip",
-              onClick = { onToggleBottomBarPrecipitation(!settings.showBottomBarPrecipitation) },
             )
           }
         }
