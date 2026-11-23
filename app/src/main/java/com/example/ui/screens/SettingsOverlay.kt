@@ -42,6 +42,7 @@ import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Shield
+import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material3.Button
@@ -126,7 +127,10 @@ fun SettingsOverlay(
   onSelectWindUnit: (WindSpeedUnit) -> Unit,
   onToggle24Hour: (Boolean) -> Unit,
   onToggle7DayForecast: (Boolean) -> Unit,
-  onToggle24HourForecast: (Boolean) -> Unit,
+  onToggleBottomBarTemp24h: (Boolean) -> Unit,
+  onToggleBottomBarWind: (Boolean) -> Unit,
+  onToggleBottomBarAirQuality: (Boolean) -> Unit,
+  onToggleBottomBarPrecipitation: (Boolean) -> Unit,
   onToggleSevereAlerts: (Boolean) -> Unit,
   onSelectDriftIntensity: (DriftIntensity) -> Unit,
   onSelectDriftMotionMode: (DriftMotionMode) -> Unit,
@@ -139,10 +143,14 @@ fun SettingsOverlay(
   val closeButtonFocusRequester = remember { FocusRequester() }
   val searchBoxFocusRequester = remember { FocusRequester() }
   val searchFieldFocusRequester = remember { FocusRequester() }
+  val firstResultFocusRequester = remember { FocusRequester() }
 
   var isSearchEditing by remember { mutableStateOf(false) }
   var searchBoxFocused by remember { mutableStateOf(false) }
+  var searchBtnFocused by remember { mutableStateOf(false) }
   var searchFieldAcquiredFocus by remember { mutableStateOf(false) }
+  var pendingFocusFirstResult by remember { mutableStateOf(false) }
+  var pendingFocusSearchAfterSelect by remember { mutableStateOf(false) }
 
   // Ensure initial focus lands on the Close button so the search box / keyboard never auto-opens
   LaunchedEffect(Unit) {
@@ -159,6 +167,28 @@ fun SettingsOverlay(
       keyboardController?.show()
     } else {
       keyboardController?.hide()
+      if (pendingFocusFirstResult && !searchBtnFocused) {
+        withFrameNanos {}
+        runCatching { searchBoxFocusRequester.requestFocus() }
+      }
+    }
+  }
+
+  LaunchedEffect(pendingFocusFirstResult, citySearchState.isSearching, citySearchState.results) {
+    if (pendingFocusFirstResult && !citySearchState.isSearching) {
+      if (citySearchState.results.isNotEmpty()) {
+        withFrameNanos {}
+        runCatching { firstResultFocusRequester.requestFocus() }
+      }
+      pendingFocusFirstResult = false
+    }
+  }
+
+  LaunchedEffect(pendingFocusSearchAfterSelect, citySearchState.results) {
+    if (pendingFocusSearchAfterSelect && citySearchState.results.isEmpty()) {
+      withFrameNanos {}
+      runCatching { searchBoxFocusRequester.requestFocus() }
+      pendingFocusSearchAfterSelect = false
     }
   }
 
@@ -273,6 +303,7 @@ fun SettingsOverlay(
               keyboardActions =
                 KeyboardActions(
                   onSearch = {
+                    pendingFocusFirstResult = true
                     isSearchEditing = false
                     keyboardController?.hide()
                     onSearchSubmit()
@@ -328,15 +359,16 @@ fun SettingsOverlay(
               }
             }
           }
-          var searchBtnFocused by remember { mutableStateOf(false) }
           val searchBtnScale by animateFloatAsState(targetValue = if (searchBtnFocused) 1.06f else 1f, label = "search_btn_scale")
           Button(
             onClick = {
-              isSearchEditing = false
-              keyboardController?.hide()
-              onSearchSubmit()
+              if (!citySearchState.isSearching) {
+                pendingFocusFirstResult = true
+                isSearchEditing = false
+                keyboardController?.hide()
+                onSearchSubmit()
+              }
             },
-            enabled = !citySearchState.isSearching,
             modifier =
               Modifier.height(54.dp)
                 .scale(searchBtnScale)
@@ -372,7 +404,7 @@ fun SettingsOverlay(
                 .padding(6.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
           ) {
-            citySearchState.results.take(5).forEach { city ->
+            citySearchState.results.take(5).forEachIndexed { index, city ->
               var focused by remember { mutableStateOf(false) }
               Row(
                 modifier =
@@ -385,8 +417,12 @@ fun SettingsOverlay(
                       color = if (focused) BrightGold else Color.Transparent,
                       shape = RoundedCornerShape(10.dp),
                     )
+                    .then(if (index == 0) Modifier.focusRequester(firstResultFocusRequester) else Modifier)
                     .onFocusChanged { focused = it.isFocused }
-                    .clickable { onSelectCity(city) }
+                    .clickable {
+                      pendingFocusSearchAfterSelect = true
+                      onSelectCity(city)
+                    }
                     .padding(horizontal = 12.dp, vertical = 10.dp)
                     .testTag("city_result_item"),
                 verticalAlignment = Alignment.CenterVertically,
@@ -444,59 +480,55 @@ fun SettingsOverlay(
 
         HorizontalDivider(color = SubtleOutline)
 
-        // Units & Clock
+        // Units & Clock (Single-press toggles)
         SectionHeader(icon = Icons.Rounded.Schedule, title = "Units & Clock", tint = accentColor)
         FlowRow(
           horizontalArrangement = Arrangement.spacedBy(8.dp),
           verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
           TvSelectableChip(
-            label = "°F Fahrenheit",
-            selected = settings.temperatureUnit == TemperatureUnit.FAHRENHEIT,
+            label =
+              if (settings.temperatureUnit == TemperatureUnit.FAHRENHEIT) "Temp: °F Fahrenheit"
+              else "Temp: °C Celsius",
+            selected = true,
             accentColor = accentColor,
-            testTag = "unit_fahrenheit_chip",
-            onClick = { onSelectUnit(TemperatureUnit.FAHRENHEIT) },
+            leadingIcon = Icons.Rounded.SwapHoriz,
+            testTag = "unit_toggle_chip",
+            onClick = {
+              val next =
+                if (settings.temperatureUnit == TemperatureUnit.FAHRENHEIT) TemperatureUnit.CELSIUS
+                else TemperatureUnit.FAHRENHEIT
+              onSelectUnit(next)
+            },
           )
           TvSelectableChip(
-            label = "°C Celsius",
-            selected = settings.temperatureUnit == TemperatureUnit.CELSIUS,
+            label =
+              if (settings.windSpeedUnit == WindSpeedUnit.MPH) "Wind: mph"
+              else "Wind: kph",
+            selected = true,
             accentColor = accentColor,
-            testTag = "unit_celsius_chip",
-            onClick = { onSelectUnit(TemperatureUnit.CELSIUS) },
+            leadingIcon = Icons.Rounded.SwapHoriz,
+            testTag = "wind_unit_toggle_chip",
+            onClick = {
+              val next =
+                if (settings.windSpeedUnit == WindSpeedUnit.MPH) WindSpeedUnit.KPH
+                else WindSpeedUnit.MPH
+              onSelectWindUnit(next)
+            },
           )
           TvSelectableChip(
-            label = "Wind: mph",
-            selected = settings.windSpeedUnit == WindSpeedUnit.MPH,
+            label = if (settings.use24HourClock) "Clock: 24-Hour" else "Clock: 12-Hour",
+            selected = true,
             accentColor = accentColor,
-            testTag = "wind_unit_mph_chip",
-            onClick = { onSelectWindUnit(WindSpeedUnit.MPH) },
-          )
-          TvSelectableChip(
-            label = "Wind: kph",
-            selected = settings.windSpeedUnit == WindSpeedUnit.KPH,
-            accentColor = accentColor,
-            testTag = "wind_unit_kph_chip",
-            onClick = { onSelectWindUnit(WindSpeedUnit.KPH) },
-          )
-          TvSelectableChip(
-            label = "12-Hour",
-            selected = !settings.use24HourClock,
-            accentColor = accentColor,
-            testTag = "clock_12h_chip",
-            onClick = { onToggle24Hour(false) },
-          )
-          TvSelectableChip(
-            label = "24-Hour",
-            selected = settings.use24HourClock,
-            accentColor = accentColor,
-            testTag = "clock_24h_chip",
-            onClick = { onToggle24Hour(true) },
+            leadingIcon = Icons.Rounded.SwapHoriz,
+            testTag = "clock_toggle_chip",
+            onClick = { onToggle24Hour(!settings.use24HourClock) },
           )
         }
 
         HorizontalDivider(color = SubtleOutline)
 
-        // Forecast Panels, Severe Alerts & Reactive Visuals
+        // Forecast Panels, Bottom Bar & Severe Alerts
         SectionHeader(
           icon = Icons.Rounded.DashboardCustomize,
           title = "Display Panels & Weather Features",
@@ -514,13 +546,6 @@ fun SettingsOverlay(
             onClick = { onToggle7DayForecast(!settings.show7DayForecast) },
           )
           TvSelectableChip(
-            label = if (settings.show24HourForecast) "24-Hour Forecast: ON" else "24-Hour Forecast: OFF",
-            selected = settings.show24HourForecast,
-            accentColor = accentColor,
-            testTag = "toggle_24hour_chip",
-            onClick = { onToggle24HourForecast(!settings.show24HourForecast) },
-          )
-          TvSelectableChip(
             label = if (settings.showSevereWeatherAlerts) "Severe Alerts Banner: ON" else "Severe Alerts Banner: OFF",
             selected = settings.showSevereWeatherAlerts,
             accentColor = accentColor,
@@ -528,6 +553,72 @@ fun SettingsOverlay(
             testTag = "toggle_severe_alerts_chip",
             onClick = { onToggleSevereAlerts(!settings.showSevereWeatherAlerts) },
           )
+        }
+
+        // Bottom Bar on its own line with bullet-point toggles directly beneath it
+        val enabledBottomBarCount =
+          listOf(
+            settings.showBottomBarTemp24h,
+            settings.showBottomBarWind,
+            settings.showBottomBarAirQuality,
+            settings.showBottomBarPrecipitation,
+          ).count { it }
+        Column(
+          modifier = Modifier.fillMaxWidth().testTag("bottom_bar_settings_group"),
+          verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+          Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+          ) {
+            Text(
+              text = "Bottom Bar",
+              style = MaterialTheme.typography.titleSmall,
+              fontWeight = FontWeight.SemiBold,
+              color = SoftFrostText,
+            )
+            Text(
+              text =
+                if (enabledBottomBarCount == 0) "(Hidden — all items off)"
+                else "($enabledBottomBarCount/4 enabled)",
+              style = MaterialTheme.typography.labelSmall,
+              color = SoftFrostText.copy(alpha = 0.72f),
+            )
+          }
+
+          Column(
+            modifier = Modifier.fillMaxWidth().padding(start = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+          ) {
+            BottomBarBulletToggle(
+              label = if (settings.showBottomBarTemp24h) "24h Temp: ON" else "24h Temp: OFF",
+              selected = settings.showBottomBarTemp24h,
+              accentColor = accentColor,
+              testTag = "toggle_bottom_bar_temp_24h_chip",
+              onClick = { onToggleBottomBarTemp24h(!settings.showBottomBarTemp24h) },
+            )
+            BottomBarBulletToggle(
+              label = if (settings.showBottomBarWind) "Wind: ON" else "Wind: OFF",
+              selected = settings.showBottomBarWind,
+              accentColor = accentColor,
+              testTag = "toggle_bottom_bar_wind_chip",
+              onClick = { onToggleBottomBarWind(!settings.showBottomBarWind) },
+            )
+            BottomBarBulletToggle(
+              label = if (settings.showBottomBarAirQuality) "Air Quality: ON" else "Air Quality: OFF",
+              selected = settings.showBottomBarAirQuality,
+              accentColor = accentColor,
+              testTag = "toggle_bottom_bar_air_quality_chip",
+              onClick = { onToggleBottomBarAirQuality(!settings.showBottomBarAirQuality) },
+            )
+            BottomBarBulletToggle(
+              label = if (settings.showBottomBarPrecipitation) "Precipitation: ON" else "Precipitation: OFF",
+              selected = settings.showBottomBarPrecipitation,
+              accentColor = accentColor,
+              testTag = "toggle_bottom_bar_precipitation_chip",
+              onClick = { onToggleBottomBarPrecipitation(!settings.showBottomBarPrecipitation) },
+            )
+          }
         }
 
         if (settings.showSevereWeatherAlerts) {
@@ -827,6 +918,33 @@ private fun SectionHeader(icon: ImageVector, title: String, tint: Color) {
   ) {
     Icon(imageVector = icon, contentDescription = null, tint = tint, modifier = Modifier.size(18.dp))
     Text(text = title, style = MaterialTheme.typography.titleMedium, color = SoftFrostText)
+  }
+}
+
+@Composable
+private fun BottomBarBulletToggle(
+  label: String,
+  selected: Boolean,
+  accentColor: Color,
+  testTag: String,
+  onClick: () -> Unit,
+) {
+  Row(
+    verticalAlignment = Alignment.CenterVertically,
+    horizontalArrangement = Arrangement.spacedBy(10.dp),
+  ) {
+    Text(
+      text = "•",
+      style = MaterialTheme.typography.titleMedium,
+      color = if (selected) accentColor else SoftFrostText.copy(alpha = 0.65f),
+    )
+    TvSelectableChip(
+      label = label,
+      selected = selected,
+      accentColor = accentColor,
+      testTag = testTag,
+      onClick = onClick,
+    )
   }
 }
 

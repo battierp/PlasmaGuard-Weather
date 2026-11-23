@@ -127,6 +127,7 @@ import com.example.ui.components.PlasmaShieldState
 import com.example.ui.components.RotatingHourlyCubePanel
 import com.example.ui.components.WeatherGlyph
 import com.example.ui.components.rememberPlasmaShieldState
+import com.example.ui.components.resolveEnabledBottomBarFaces
 import com.example.ui.theme.AuroraCyan
 import com.example.ui.theme.BrightCoral
 import com.example.ui.theme.BrightGold
@@ -501,7 +502,10 @@ fun ScreensaverRoute(
         onSelectWindUnit = viewModel::setWindSpeedUnit,
         onToggle24Hour = viewModel::setUse24HourClock,
         onToggle7DayForecast = viewModel::setShow7DayForecast,
-        onToggle24HourForecast = viewModel::setShow24HourForecast,
+        onToggleBottomBarTemp24h = viewModel::setShowBottomBarTemp24h,
+        onToggleBottomBarWind = viewModel::setShowBottomBarWind,
+        onToggleBottomBarAirQuality = viewModel::setShowBottomBarAirQuality,
+        onToggleBottomBarPrecipitation = viewModel::setShowBottomBarPrecipitation,
         onToggleSevereAlerts = viewModel::setShowSevereWeatherAlerts,
         onSelectDriftIntensity = viewModel::setDriftIntensity,
         onSelectDriftMotionMode = viewModel::setDriftMotionMode,
@@ -1093,8 +1097,15 @@ private fun ScreensaverWeatherCanvas(
 ) {
   val showAlertsBanner = settings.showSevereWeatherAlerts && snapshot.alerts.isNotEmpty()
   val show7Day = settings.show7DayForecast
-  val show24Hour = settings.show24HourForecast
-  val isHeroOnly = !show7Day && !show24Hour
+  val enabledBottomBarFaces =
+    resolveEnabledBottomBarFaces(
+      showTemp24h = settings.showBottomBarTemp24h,
+      showPrecipitation = settings.showBottomBarPrecipitation,
+      showWind = settings.showBottomBarWind,
+      showAirQuality = settings.showBottomBarAirQuality,
+    )
+  val showBottomBar = enabledBottomBarFaces.isNotEmpty()
+  val isHeroOnly = !show7Day && !showBottomBar
   val isDvdBounce = settings.driftMotionMode == DriftMotionMode.DVD_BOUNCE
   val contentScale = com.example.ui.components.motionModeContentScale(settings.driftMotionMode)
 
@@ -1167,7 +1178,7 @@ private fun ScreensaverWeatherCanvas(
           modifier = Modifier.wrapContentSize(),
         )
       } else {
-        val fillsFullHeight = show24Hour
+        val fillsFullHeight = showBottomBar
         Column(
           modifier =
             Modifier.fillMaxWidth()
@@ -1185,8 +1196,8 @@ private fun ScreensaverWeatherCanvas(
 
           if (isTvWide) {
             when {
-              show7Day && show24Hour -> {
-                // Standard 60 / 40 split: Hero Left + 7-Day Right | 24-Hour Bottom
+              show7Day && showBottomBar -> {
+                // Standard 60 / 40 split: Hero Left + 7-Day Right | Bottom Bar
                 Row(
                   modifier = Modifier.weight(0.60f).fillMaxWidth(),
                   verticalAlignment = Alignment.CenterVertically,
@@ -1229,12 +1240,13 @@ private fun ScreensaverWeatherCanvas(
                   isCompact = false,
                   isShortHeight = isShortLandscape,
                   expandHeight = true,
+                  enabledFaces = enabledBottomBarFaces,
                   modifier = Modifier.weight(0.40f).fillMaxWidth(),
                 )
               }
 
-              show7Day && !show24Hour -> {
-                // 24-Hour OFF -> Keep Hero & 7-Day side-by-side at matching compact height with minimal vertical spacing
+              show7Day && !showBottomBar -> {
+                // Bottom Bar OFF -> Keep Hero & 7-Day side-by-side at matching compact height with minimal vertical spacing
                 Row(
                   modifier = Modifier.fillMaxWidth(),
                   verticalAlignment = Alignment.CenterVertically,
@@ -1265,7 +1277,7 @@ private fun ScreensaverWeatherCanvas(
               }
 
               else -> {
-                // 7-Day OFF, 24-Hour ON -> Hero cluster centered cleanly above 24-Hour strip with zero bottom clipping
+                // 7-Day OFF, Bottom Bar ON -> Hero cluster centered cleanly above Bottom Bar with zero bottom clipping
                 Box(
                   modifier = Modifier.weight(0.62f).fillMaxWidth(),
                   contentAlignment = Alignment.Center,
@@ -1288,6 +1300,7 @@ private fun ScreensaverWeatherCanvas(
                   isCompact = false,
                   isShortHeight = isShortLandscape,
                   expandHeight = true,
+                  enabledFaces = enabledBottomBarFaces,
                   modifier = Modifier.weight(0.38f).fillMaxWidth(),
                 )
               }
@@ -1295,7 +1308,7 @@ private fun ScreensaverWeatherCanvas(
           } else {
             // Compact / Portrait Non-Scrollable Layout
             when {
-              show7Day && show24Hour -> {
+              show7Day && showBottomBar -> {
                 Column(
                   modifier = Modifier.weight(1f).fillMaxWidth(),
                   verticalArrangement = Arrangement.SpaceBetween,
@@ -1326,12 +1339,13 @@ private fun ScreensaverWeatherCanvas(
                     isCompact = true,
                     isShortHeight = false,
                     expandHeight = false,
+                    enabledFaces = enabledBottomBarFaces,
                     modifier = Modifier.fillMaxWidth(),
                   )
                 }
               }
 
-              show7Day && !show24Hour -> {
+              show7Day && !showBottomBar -> {
                 Column(
                   modifier = Modifier.fillMaxWidth(),
                   verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -1358,7 +1372,7 @@ private fun ScreensaverWeatherCanvas(
               }
 
               else -> {
-                // 7-Day OFF, 24-Hour ON (Compact)
+                // 7-Day OFF, Bottom Bar ON (Compact)
                 Column(
                   modifier = Modifier.weight(1f).fillMaxWidth(),
                   verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -1384,6 +1398,7 @@ private fun ScreensaverWeatherCanvas(
                     isCompact = true,
                     isShortHeight = false,
                     expandHeight = false,
+                    enabledFaces = enabledBottomBarFaces,
                     modifier = Modifier.fillMaxWidth(),
                   )
                 }

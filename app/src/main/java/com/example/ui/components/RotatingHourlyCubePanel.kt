@@ -83,6 +83,19 @@ enum class HourlyCubeFace(val title: String) {
   AIR_QUALITY_12H("12-HOUR AIR QUALITY"),
 }
 
+fun resolveEnabledBottomBarFaces(
+  showTemp24h: Boolean,
+  showPrecipitation: Boolean,
+  showWind: Boolean,
+  showAirQuality: Boolean,
+): List<HourlyCubeFace> =
+  buildList {
+    if (showTemp24h) add(HourlyCubeFace.FORECAST_24H)
+    if (showPrecipitation) add(HourlyCubeFace.PRECIPITATION_12H)
+    if (showWind) add(HourlyCubeFace.WIND_12H)
+    if (showAirQuality) add(HourlyCubeFace.AIR_QUALITY_12H)
+  }
+
 // 4 faces * (14,050ms hold + 950ms 3D roll) = 60,000ms (1 minute) full cycle
 private const val FACE_HOLD_DURATION_MS = 14_050L
 private const val CUBE_ROLL_DURATION_MS = 950
@@ -96,31 +109,42 @@ fun RotatingHourlyCubePanel(
   isCompact: Boolean,
   isShortHeight: Boolean,
   expandHeight: Boolean,
+  enabledFaces: List<HourlyCubeFace> = HourlyCubeFace.entries,
   modifier: Modifier = Modifier,
 ) {
+  if (enabledFaces.isEmpty()) return
+
   var currentFaceIndex by remember { mutableIntStateOf(0) }
-  var nextFaceIndex by remember { mutableIntStateOf(1) }
+  var nextFaceIndex by remember { mutableIntStateOf(0) }
   val rollProgress = remember { Animatable(0f) }
   var panelHeightPx by remember { mutableIntStateOf(0) }
 
-  LaunchedEffect(Unit) {
-    while (true) {
-      delay(FACE_HOLD_DURATION_MS)
-      nextFaceIndex = (currentFaceIndex + 1) % HourlyCubeFace.entries.size
-      rollProgress.snapTo(0f)
-      rollProgress.animateTo(
-        targetValue = 1f,
-        animationSpec = tween(durationMillis = CUBE_ROLL_DURATION_MS, easing = CubeRollEasing),
-      )
-      currentFaceIndex = nextFaceIndex
-      rollProgress.snapTo(0f)
+  LaunchedEffect(enabledFaces) {
+    rollProgress.snapTo(0f)
+    currentFaceIndex = currentFaceIndex.coerceIn(0, enabledFaces.lastIndex)
+    nextFaceIndex = (currentFaceIndex + 1) % enabledFaces.size
+    if (enabledFaces.size > 1) {
+      while (true) {
+        delay(FACE_HOLD_DURATION_MS)
+        val upcoming = (currentFaceIndex + 1) % enabledFaces.size
+        nextFaceIndex = upcoming
+        rollProgress.snapTo(0f)
+        rollProgress.animateTo(
+          targetValue = 1f,
+          animationSpec = tween(durationMillis = CUBE_ROLL_DURATION_MS, easing = CubeRollEasing),
+        )
+        currentFaceIndex = upcoming
+        rollProgress.snapTo(0f)
+      }
     }
   }
 
+  val safeCurrentIndex = currentFaceIndex.coerceIn(0, enabledFaces.lastIndex)
+  val safeNextIndex = nextFaceIndex.coerceIn(0, enabledFaces.lastIndex)
   val p = rollProgress.value.coerceIn(0f, 1f)
-  val isRolling = p > 0.001f && panelHeightPx > 0
-  val currentFace = HourlyCubeFace.entries[currentFaceIndex]
-  val nextFace = HourlyCubeFace.entries[nextFaceIndex]
+  val isRolling = enabledFaces.size > 1 && p > 0.001f && panelHeightPx > 0
+  val currentFace = enabledFaces[safeCurrentIndex]
+  val nextFace = enabledFaces[safeNextIndex]
 
   Box(
     modifier =
@@ -135,6 +159,7 @@ fun RotatingHourlyCubePanel(
     if (!isRolling) {
       CubeFacePanelContent(
         face = currentFace,
+        enabledFaces = enabledFaces,
         snapshot = snapshot,
         use24Hour = use24Hour,
         plasma = plasma,
@@ -153,6 +178,7 @@ fun RotatingHourlyCubePanel(
       // Outgoing face: hinged at its TOP edge (seamY), rolling downward and tilting away
       CubeFacePanelContent(
         face = currentFace,
+        enabledFaces = enabledFaces,
         snapshot = snapshot,
         use24Hour = use24Hour,
         plasma = plasma,
@@ -183,6 +209,7 @@ fun RotatingHourlyCubePanel(
       // Incoming face: hinged at its BOTTOM edge (seamY), rolling forward from above
       CubeFacePanelContent(
         face = nextFace,
+        enabledFaces = enabledFaces,
         snapshot = snapshot,
         use24Hour = use24Hour,
         plasma = plasma,
@@ -216,6 +243,7 @@ fun RotatingHourlyCubePanel(
 @Composable
 private fun CubeFacePanelContent(
   face: HourlyCubeFace,
+  enabledFaces: List<HourlyCubeFace>,
   snapshot: WeatherSnapshot,
   use24Hour: Boolean,
   plasma: PlasmaShieldState,
@@ -360,23 +388,25 @@ private fun CubeFacePanelContent(
           modifier = Modifier.align(Alignment.Center).fillMaxWidth().padding(horizontal = 42.dp),
         )
 
-        Row(
-          modifier = Modifier.align(Alignment.CenterEnd),
-          horizontalArrangement = Arrangement.spacedBy(4.dp),
-          verticalAlignment = Alignment.CenterVertically,
-        ) {
-          HourlyCubeFace.entries.forEach { entry ->
-            val selected = entry == face
-            Box(
-              modifier =
-                Modifier.height(4.dp)
-                  .width(if (selected) 12.dp else 4.dp)
-                  .clip(CircleShape)
-                  .background(
-                    if (selected) plasma.primaryTextColor.copy(alpha = 0.85f)
-                    else plasma.secondaryTextColor.copy(alpha = 0.30f)
-                  )
-            )
+        if (enabledFaces.size > 1) {
+          Row(
+            modifier = Modifier.align(Alignment.CenterEnd),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+          ) {
+            enabledFaces.forEach { entry ->
+              val selected = entry == face
+              Box(
+                modifier =
+                  Modifier.height(4.dp)
+                    .width(if (selected) 12.dp else 4.dp)
+                    .clip(CircleShape)
+                    .background(
+                      if (selected) plasma.primaryTextColor.copy(alpha = 0.85f)
+                      else plasma.secondaryTextColor.copy(alpha = 0.30f)
+                    )
+              )
+            }
           }
         }
       }

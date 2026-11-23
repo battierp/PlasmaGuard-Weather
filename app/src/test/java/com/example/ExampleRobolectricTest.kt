@@ -82,12 +82,18 @@ class ExampleRobolectricTest {
   }
 
   @Test
-  fun `user settings defaults include wind mph, forecast panels, alerts, and auto rotate off`() {
+  fun `user settings defaults include fahrenheit, wind mph, 12h clock, forecast panels, alerts, and auto rotate off`() {
     val defaults = UserSettings()
+    assertEquals(com.example.data.model.TemperatureUnit.FAHRENHEIT, defaults.temperatureUnit)
     assertEquals(WindSpeedUnit.MPH, defaults.windSpeedUnit)
+    assertFalse(defaults.use24HourClock)
     assertEquals(listOf("mph", "kph"), WindSpeedUnit.entries.map { it.label })
     assertTrue(defaults.show7DayForecast)
-    assertTrue(defaults.show24HourForecast)
+    assertTrue(defaults.showBottomBar)
+    assertTrue(defaults.showBottomBarTemp24h)
+    assertTrue(defaults.showBottomBarWind)
+    assertTrue(defaults.showBottomBarAirQuality)
+    assertTrue(defaults.showBottomBarPrecipitation)
     assertTrue(defaults.showSevereWeatherAlerts)
     assertFalse(defaults.autoRotateLocations)
   }

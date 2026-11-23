@@ -161,4 +161,50 @@ class ExampleUnitTest {
     assertEquals((fullScale + dvdScale) / 2f, clockwiseScale, 0.0001f)
     assertEquals(0.90f, clockwiseScale, 0.0001f)
   }
+
+  @Test
+  fun `units default to fahrenheit, mph, 12-hour and bottom bar hides only when all 4 items are off`() {
+    val defaults = UserSettings()
+    assertEquals(com.example.data.model.TemperatureUnit.FAHRENHEIT, defaults.temperatureUnit)
+    assertEquals(WindSpeedUnit.MPH, defaults.windSpeedUnit)
+    assertFalse(defaults.use24HourClock)
+    assertTrue(defaults.showBottomBar)
+    assertEquals(
+      HourlyCubeFace.entries,
+      com.example.ui.components.resolveEnabledBottomBarFaces(
+        showTemp24h = defaults.showBottomBarTemp24h,
+        showPrecipitation = defaults.showBottomBarPrecipitation,
+        showWind = defaults.showBottomBarWind,
+        showAirQuality = defaults.showBottomBarAirQuality,
+      ),
+    )
+
+    val windOnly =
+      defaults.copy(
+        showBottomBarTemp24h = false,
+        showBottomBarPrecipitation = false,
+        showBottomBarAirQuality = false,
+      )
+    assertTrue(windOnly.showBottomBar)
+    assertEquals(
+      listOf(HourlyCubeFace.WIND_12H),
+      com.example.ui.components.resolveEnabledBottomBarFaces(
+        showTemp24h = windOnly.showBottomBarTemp24h,
+        showPrecipitation = windOnly.showBottomBarPrecipitation,
+        showWind = windOnly.showBottomBarWind,
+        showAirQuality = windOnly.showBottomBarAirQuality,
+      ),
+    )
+
+    val allOff = windOnly.copy(showBottomBarWind = false)
+    assertFalse(allOff.showBottomBar)
+    assertTrue(
+      com.example.ui.components.resolveEnabledBottomBarFaces(
+        showTemp24h = allOff.showBottomBarTemp24h,
+        showPrecipitation = allOff.showBottomBarPrecipitation,
+        showWind = allOff.showBottomBarWind,
+        showAirQuality = allOff.showBottomBarAirQuality,
+      ).isEmpty(),
+    )
+  }
 }

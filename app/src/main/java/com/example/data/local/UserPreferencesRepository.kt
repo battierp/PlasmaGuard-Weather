@@ -37,11 +37,21 @@ data class UserSettings(
   val driftMotionMode: DriftMotionMode = DriftMotionMode.CLOCKWISE,
   val textColorOption: TextColorOption = TextColorOption.WHITE,
   val show7DayForecast: Boolean = true,
-  val show24HourForecast: Boolean = true,
+  val showBottomBarTemp24h: Boolean = true,
+  val showBottomBarWind: Boolean = true,
+  val showBottomBarAirQuality: Boolean = true,
+  val showBottomBarPrecipitation: Boolean = true,
   val showSevereWeatherAlerts: Boolean = true,
   val savedLocations: List<SavedLocation> = emptyList(),
   val autoRotateLocations: Boolean = false,
-)
+) {
+  val showBottomBar: Boolean
+    get() =
+      showBottomBarTemp24h ||
+        showBottomBarWind ||
+        showBottomBarAirQuality ||
+        showBottomBarPrecipitation
+}
 
 class UserPreferencesRepository(
   private val context: Context,
@@ -60,6 +70,10 @@ class UserPreferencesRepository(
     val TEXT_COLOR_OPTION = stringPreferencesKey("text_color_option")
     val SHOW_7_DAY_FORECAST = booleanPreferencesKey("show_7_day_forecast")
     val SHOW_24_HOUR_FORECAST = booleanPreferencesKey("show_24_hour_forecast")
+    val SHOW_BOTTOM_BAR_TEMP_24H = booleanPreferencesKey("show_bottom_bar_temp_24h")
+    val SHOW_BOTTOM_BAR_WIND = booleanPreferencesKey("show_bottom_bar_wind")
+    val SHOW_BOTTOM_BAR_AIR_QUALITY = booleanPreferencesKey("show_bottom_bar_air_quality")
+    val SHOW_BOTTOM_BAR_PRECIPITATION = booleanPreferencesKey("show_bottom_bar_precipitation")
     val SHOW_SEVERE_WEATHER_ALERTS = booleanPreferencesKey("show_severe_weather_alerts")
     val SAVED_LOCATIONS_JSON = stringPreferencesKey("saved_locations_v1_json")
     val AUTO_ROTATE_LOCATIONS = booleanPreferencesKey("auto_rotate_locations")
@@ -85,6 +99,7 @@ class UserPreferencesRepository(
           listOf(SavedLocation(name = activeCity, latitude = activeLat, longitude = activeLon))
         }
 
+      val legacyShow24Hour = prefs[Keys.SHOW_24_HOUR_FORECAST] ?: true
       UserSettings(
         cityName = activeCity,
         latitude = activeLat,
@@ -111,7 +126,10 @@ class UserPreferencesRepository(
             TextColorOption.entries.firstOrNull { it.name == name }
           } ?: TextColorOption.WHITE,
         show7DayForecast = prefs[Keys.SHOW_7_DAY_FORECAST] ?: true,
-        show24HourForecast = prefs[Keys.SHOW_24_HOUR_FORECAST] ?: true,
+        showBottomBarTemp24h = prefs[Keys.SHOW_BOTTOM_BAR_TEMP_24H] ?: legacyShow24Hour,
+        showBottomBarWind = prefs[Keys.SHOW_BOTTOM_BAR_WIND] ?: legacyShow24Hour,
+        showBottomBarAirQuality = prefs[Keys.SHOW_BOTTOM_BAR_AIR_QUALITY] ?: legacyShow24Hour,
+        showBottomBarPrecipitation = prefs[Keys.SHOW_BOTTOM_BAR_PRECIPITATION] ?: legacyShow24Hour,
         showSevereWeatherAlerts = prefs[Keys.SHOW_SEVERE_WEATHER_ALERTS] ?: true,
         savedLocations = effectiveSaved,
         autoRotateLocations = prefs[Keys.AUTO_ROTATE_LOCATIONS] ?: false,
@@ -227,9 +245,27 @@ class UserPreferencesRepository(
     }
   }
 
-  suspend fun setShow24HourForecast(show: Boolean) {
+  suspend fun setShowBottomBarTemp24h(show: Boolean) {
     context.dataStore.edit { prefs ->
-      prefs[Keys.SHOW_24_HOUR_FORECAST] = show
+      prefs[Keys.SHOW_BOTTOM_BAR_TEMP_24H] = show
+    }
+  }
+
+  suspend fun setShowBottomBarWind(show: Boolean) {
+    context.dataStore.edit { prefs ->
+      prefs[Keys.SHOW_BOTTOM_BAR_WIND] = show
+    }
+  }
+
+  suspend fun setShowBottomBarAirQuality(show: Boolean) {
+    context.dataStore.edit { prefs ->
+      prefs[Keys.SHOW_BOTTOM_BAR_AIR_QUALITY] = show
+    }
+  }
+
+  suspend fun setShowBottomBarPrecipitation(show: Boolean) {
+    context.dataStore.edit { prefs ->
+      prefs[Keys.SHOW_BOTTOM_BAR_PRECIPITATION] = show
     }
   }
 

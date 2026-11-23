@@ -280,8 +280,20 @@ class ScreensaverViewModel(application: Application) : AndroidViewModel(applicat
     viewModelScope.launch { prefsRepo.setShow7DayForecast(show) }
   }
 
-  fun setShow24HourForecast(show: Boolean) {
-    viewModelScope.launch { prefsRepo.setShow24HourForecast(show) }
+  fun setShowBottomBarTemp24h(show: Boolean) {
+    viewModelScope.launch { prefsRepo.setShowBottomBarTemp24h(show) }
+  }
+
+  fun setShowBottomBarWind(show: Boolean) {
+    viewModelScope.launch { prefsRepo.setShowBottomBarWind(show) }
+  }
+
+  fun setShowBottomBarAirQuality(show: Boolean) {
+    viewModelScope.launch { prefsRepo.setShowBottomBarAirQuality(show) }
+  }
+
+  fun setShowBottomBarPrecipitation(show: Boolean) {
+    viewModelScope.launch { prefsRepo.setShowBottomBarPrecipitation(show) }
   }
 
   fun setShowSevereWeatherAlerts(show: Boolean) {
