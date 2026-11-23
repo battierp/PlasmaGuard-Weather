@@ -1,7 +1,5 @@
 package com.example.ui.screens
 
-import android.content.Intent
-import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -17,6 +15,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -45,7 +44,6 @@ import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material.icons.rounded.Sync
-import androidx.compose.material.icons.rounded.Tv
 import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -63,22 +61,27 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.data.local.MAX_SAVED_LOCATIONS
 import com.example.data.local.UserSettings
@@ -132,8 +135,38 @@ fun SettingsOverlay(
 ) {
   BackHandler(onBack = onDismiss)
 
-  val context = LocalContext.current
-  var systemSettingsFeedback by remember { mutableStateOf<String?>(null) }
+  val keyboardController = LocalSoftwareKeyboardController.current
+  val closeButtonFocusRequester = remember { FocusRequester() }
+  val searchBoxFocusRequester = remember { FocusRequester() }
+  val searchFieldFocusRequester = remember { FocusRequester() }
+
+  var isSearchEditing by remember { mutableStateOf(false) }
+  var searchBoxFocused by remember { mutableStateOf(false) }
+  var searchFieldAcquiredFocus by remember { mutableStateOf(false) }
+
+  // Ensure initial focus lands on the Close button so the search box / keyboard never auto-opens
+  LaunchedEffect(Unit) {
+    keyboardController?.hide()
+    withFrameNanos {}
+    runCatching { closeButtonFocusRequester.requestFocus() }
+  }
+
+  LaunchedEffect(isSearchEditing) {
+    if (isSearchEditing) {
+      searchFieldAcquiredFocus = false
+      withFrameNanos {}
+      runCatching { searchFieldFocusRequester.requestFocus() }
+      keyboardController?.show()
+    } else {
+      keyboardController?.hide()
+    }
+  }
+
+  BackHandler(enabled = isSearchEditing) {
+    isSearchEditing = false
+    keyboardController?.hide()
+    runCatching { searchBoxFocusRequester.requestFocus() }
+  }
 
   Box(
     modifier =
@@ -173,8 +206,14 @@ fun SettingsOverlay(
             )
           }
           IconButton(
-            onClick = onDismiss,
-            modifier = Modifier.minimumInteractiveComponentSize().testTag("close_settings_button"),
+            onClick = {
+              keyboardController?.hide()
+              onDismiss()
+            },
+            modifier =
+              Modifier.minimumInteractiveComponentSize()
+                .focusRequester(closeButtonFocusRequester)
+                .testTag("close_settings_button"),
           ) {
             Icon(
               imageVector = Icons.Rounded.Close,
@@ -197,32 +236,91 @@ fun SettingsOverlay(
           horizontalArrangement = Arrangement.spacedBy(10.dp),
           verticalAlignment = Alignment.CenterVertically,
         ) {
-          OutlinedTextField(
-            value = citySearchState.query,
-            onValueChange = onQueryChange,
-            modifier = Modifier.weight(1f).testTag("city_search_input"),
-            placeholder = {
-              Text(
-                "Search city or zip code (e.g. Seattle, 90210)",
-                color = SoftFrostText.copy(alpha = 0.65f),
-              )
-            },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            keyboardActions = KeyboardActions(onSearch = { onSearchSubmit() }),
-            shape = RoundedCornerShape(14.dp),
-            colors =
-              OutlinedTextFieldDefaults.colors(
-                focusedTextColor = SoftFrostText,
-                unfocusedTextColor = SoftFrostText,
-                focusedBorderColor = accentColor,
-                unfocusedBorderColor = SubtleOutline,
-                focusedContainerColor = DeepCardSurface,
-                unfocusedContainerColor = DeepCardSurface,
-              ),
-          )
+          if (isSearchEditing) {
+            OutlinedTextField(
+              value = citySearchState.query,
+              onValueChange = onQueryChange,
+              modifier =
+                Modifier.weight(1f)
+                  .focusRequester(searchFieldFocusRequester)
+                  .onFocusChanged { focusState ->
+                    if (focusState.isFocused) {
+                      searchFieldAcquiredFocus = true
+                    } else if (searchFieldAcquiredFocus) {
+                      isSearchEditing = false
+                    }
+                  }
+                  .testTag("city_search_input"),
+              placeholder = {
+                Text(
+                  "Search city or zip code (e.g. Seattle, 90210)",
+                  color = SoftFrostText.copy(alpha = 0.65f),
+                )
+              },
+              singleLine = true,
+              keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+              keyboardActions =
+                KeyboardActions(
+                  onSearch = {
+                    isSearchEditing = false
+                    keyboardController?.hide()
+                    onSearchSubmit()
+                  }
+                ),
+              shape = RoundedCornerShape(14.dp),
+              colors =
+                OutlinedTextFieldDefaults.colors(
+                  focusedTextColor = SoftFrostText,
+                  unfocusedTextColor = SoftFrostText,
+                  focusedBorderColor = accentColor,
+                  unfocusedBorderColor = SubtleOutline,
+                  focusedContainerColor = DeepCardSurface,
+                  unfocusedContainerColor = DeepCardSurface,
+                ),
+            )
+          } else {
+            Surface(
+              modifier =
+                Modifier.weight(1f)
+                  .defaultMinSize(minHeight = 56.dp)
+                  .clip(RoundedCornerShape(14.dp))
+                  .focusRequester(searchBoxFocusRequester)
+                  .onFocusChanged { searchBoxFocused = it.isFocused }
+                  .clickable { isSearchEditing = true }
+                  .testTag("city_search_input"),
+              shape = RoundedCornerShape(14.dp),
+              color = DeepCardSurface,
+              border =
+                BorderStroke(
+                  width = if (searchBoxFocused) 2.dp else 1.dp,
+                  color = if (searchBoxFocused) accentColor else SubtleOutline,
+                ),
+            ) {
+              Box(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 15.dp),
+                contentAlignment = Alignment.CenterStart,
+              ) {
+                Text(
+                  text =
+                    citySearchState.query.ifBlank {
+                      "Search city or zip code (press OK to type)"
+                    },
+                  style = MaterialTheme.typography.bodyLarge,
+                  color =
+                    if (citySearchState.query.isNotBlank()) SoftFrostText
+                    else SoftFrostText.copy(alpha = 0.65f),
+                  maxLines = 1,
+                  overflow = TextOverflow.Ellipsis,
+                )
+              }
+            }
+          }
           Button(
-            onClick = onSearchSubmit,
+            onClick = {
+              isSearchEditing = false
+              keyboardController?.hide()
+              onSearchSubmit()
+            },
             enabled = !citySearchState.isSearching,
             modifier = Modifier.height(54.dp).testTag("city_search_button"),
             shape = RoundedCornerShape(14.dp),
@@ -534,33 +632,12 @@ fun SettingsOverlay(
 
         HorizontalDivider(color = SubtleOutline)
 
-        // TV Screensaver Integration & Actions
+        // Actions
         FlowRow(
           modifier = Modifier.fillMaxWidth(),
           horizontalArrangement = Arrangement.spacedBy(10.dp),
           verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-          OutlinedButton(
-            onClick = {
-              val dreamIntent = Intent(Settings.ACTION_DREAM_SETTINGS)
-              val fallbackIntent = Intent(Settings.ACTION_DISPLAY_SETTINGS)
-              val launched =
-                runCatching { context.startActivity(dreamIntent) }.isSuccess ||
-                  runCatching { context.startActivity(fallbackIntent) }.isSuccess
-              if (!launched) {
-                systemSettingsFeedback =
-                  "Open TV Settings → Device Preferences → Screen saver to choose PlasmaSky."
-              }
-            },
-            modifier = Modifier.minimumInteractiveComponentSize().testTag("tv_dream_settings_button"),
-            shape = RoundedCornerShape(14.dp),
-            border = BorderStroke(1.dp, SubtleOutline),
-          ) {
-            Icon(imageVector = Icons.Rounded.Tv, contentDescription = null, tint = accentColor)
-            Spacer(modifier = Modifier.width(8.dp))
-            Text("Set as TV Screensaver", color = SoftFrostText)
-          }
-
           OutlinedButton(
             onClick = onRefreshWeather,
             modifier = Modifier.minimumInteractiveComponentSize().testTag("refresh_weather_button"),
@@ -573,7 +650,10 @@ fun SettingsOverlay(
           }
 
           Button(
-            onClick = onDismiss,
+            onClick = {
+              keyboardController?.hide()
+              onDismiss()
+            },
             modifier = Modifier.minimumInteractiveComponentSize().testTag("resume_screensaver_button"),
             shape = RoundedCornerShape(14.dp),
             colors = ButtonDefaults.buttonColors(containerColor = accentColor, contentColor = ObsidianBlack),
@@ -582,14 +662,6 @@ fun SettingsOverlay(
             Spacer(modifier = Modifier.width(6.dp))
             Text("Resume Screensaver", fontWeight = FontWeight.SemiBold)
           }
-        }
-
-        if (systemSettingsFeedback != null) {
-          Text(
-            text = systemSettingsFeedback.orEmpty(),
-            style = MaterialTheme.typography.bodyMedium,
-            color = SoftFrostText,
-          )
         }
 
         Text(
