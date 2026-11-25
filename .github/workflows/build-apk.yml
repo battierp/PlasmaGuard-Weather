@@ -34,8 +34,18 @@ jobs:
 
       - name: Accept Android SDK licenses
         run: |
-          if [ -n "$ANDROID_HOME" ] && [ -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]; then
-            yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
+          SDK_ROOT="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          if [ -z "$SDK_ROOT" ]; then
+            echo "Android SDK path not set"
+            exit 1
+          fi
+          mkdir -p "$SDK_ROOT/licenses"
+          printf "\n24333f8a63b6825ea9c5514f83c2829b004d1fee\n8933bad161af4178b1185d1a37fbf41ea5269c55\nd56f5187479451eabf01fb78af6dfcb131a6481e" > "$SDK_ROOT/licenses/android-sdk-license"
+          printf "\n84831b9409646a918e30573bab4c9c91346d8abd" > "$SDK_ROOT/licenses/android-sdk-preview-license"
+          printf "\nd975f751698a77b662f1254ddbeed3901e976f5a" > "$SDK_ROOT/licenses/intel-android-extra-license"
+          SDKMANAGER=$(find "$SDK_ROOT/cmdline-tools" -name sdkmanager -type f 2>/dev/null | head -n 1 || true)
+          if [ -n "$SDKMANAGER" ] && [ -x "$SDKMANAGER" ]; then
+            yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
           fi
 
       - name: Prepare debug signing keystore
@@ -54,8 +64,11 @@ jobs:
               -dname "CN=Android Debug,O=Android,C=US"
           fi
 
-      - name: Run unit tests & build APK
-        run: gradle :app:testDebugUnitTest :app:assembleDebug -PversionCode=${{ github.run_number }} --no-daemon
+      - name: Build debug APK
+        run: gradle :app:assembleDebug -PversionCode=${{ github.run_number }} --no-daemon
+
+      - name: Run unit tests
+        run: gradle :app:testDebugUnitTest --no-daemon
 
       - name: Package downloadable APK
         run: |
@@ -74,6 +87,7 @@ jobs:
         with:
           tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'latest' }}
           name: ${{ startsWith(github.ref, 'refs/tags/') && format('PlasmaSky {0}', github.ref_name) || 'PlasmaSky Latest Build' }}
+          target_commitish: ${{ github.sha }}
           body: |
             Automated Android TV / Android build of **PlasmaSky**.
 
@@ -81,6 +95,6 @@ jobs:
             Download **`PlasmaSky.apk`** below and open/sideload it on your Android TV or Android device.
           files: dist/PlasmaSky.apk
           overwrite_files: true
-          make_latest: true
+          make_latest: "true"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
