@@ -70,15 +70,16 @@ class ExampleRobolectricTest {
   }
 
   @Test
-  fun `drift intensity exposes slow, medium, fast, and fastest at 1x, 2x, 4x, and 6x speeds`() {
+  fun `drift intensity exposes slowest through fastest at 4 to 20 dp per sec with medium default`() {
     assertEquals(
-      listOf("Slow", "Medium", "Fast", "Fastest"),
+      listOf("Slowest", "Slow", "Medium", "Fast", "Fastest"),
       DriftIntensity.entries.map { it.label },
     )
     assertEquals(
-      listOf(1.0f, 2.0f, 4.0f, 6.0f),
+      listOf(1.0f, 2.0f, 3.0f, 4.0f, 5.0f),
       DriftIntensity.entries.map { it.speedMultiplier },
     )
+    assertEquals(DriftIntensity.BALANCED, UserSettings().driftIntensity)
   }
 
   @Test

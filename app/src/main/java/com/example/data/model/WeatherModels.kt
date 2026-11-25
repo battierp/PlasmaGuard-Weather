@@ -50,10 +50,11 @@ enum class DriftIntensity(
   val maxOffsetDp: Float,
   val speedMultiplier: Float,
 ) {
-  SUBTLE("Slow", 10f, 1.0f),
-  BALANCED("Medium", 16f, 2.0f),
+  SLOWEST("Slowest", 8f, 1.0f),
+  SUBTLE("Slow", 10f, 2.0f),
+  BALANCED("Medium", 16f, 3.0f),
   WIDE("Fast", 24f, 4.0f),
-  FASTEST("Fastest", 24f, 6.0f),
+  FASTEST("Fastest", 24f, 5.0f),
 }
 
 enum class DriftMotionMode(val label: String) {

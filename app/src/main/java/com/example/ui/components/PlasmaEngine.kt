@@ -215,14 +215,14 @@ fun rememberPlasmaShieldState(
         val maxX = currentMaxXDp.toDouble().coerceAtLeast(1.0)
         val maxY = currentMaxYDp.toDouble().coerceAtLeast(1.0)
 
-        // Wide travel (90% Clockwise, 80% DVD Bounce, or Hero-only TV edge travel) uses smooth visible screen traversal;
-        // tight anti-burn-in drift keeps gentle pixel shift scaled cleanly by 1x/2x/4x/6x.
+        // Wide travel (90% Clockwise, 80% DVD Bounce, or Hero-only TV edge travel) uses smooth visible screen traversal
+        // at 4, 8, 12, 16, and 20 dp/sec (1x..5x); tight anti-burn-in drift scales cleanly by 1x..5x.
         val isWideTravel = maxX > 30.0 || maxY > 24.0
         val speedX =
-          if (isWideTravel) 10.0 * currentSpeedMultiplier
+          if (isWideTravel) 3.2 * currentSpeedMultiplier
           else (maxX * 4.0 / 40.0) * currentSpeedMultiplier
         val speedY =
-          if (isWideTravel) 7.5 * currentSpeedMultiplier
+          if (isWideTravel) 2.4 * currentSpeedMultiplier
           else (maxY * 4.0 / 53.0) * currentSpeedMultiplier
 
         if (currentMotionMode == DriftMotionMode.DVD_BOUNCE) {
@@ -261,7 +261,7 @@ fun rememberPlasmaShieldState(
         } else {
           val totalPerimeter = (4.0 * maxX + 4.0 * maxY).coerceAtLeast(1.0)
           val perimeterSpeedDpPerSec =
-            if (isWideTravel) 12.5 * currentSpeedMultiplier
+            if (isWideTravel) 4.0 * currentSpeedMultiplier
             else hypot(speedX, speedY)
           perimeterProgress =
             ((perimeterProgress + (perimeterSpeedDpPerSec * deltaSec) / totalPerimeter) % 1.0 + 1.0) % 1.0
