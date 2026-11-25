@@ -50,7 +50,7 @@ private class GlyphPathScratch {
 }
 
 private val StaticZeroPhase: State<Float> = mutableFloatStateOf(0f)
-private val FogRowFractions = floatArrayOf(0.28f, 0.50f, 0.72f)
+private val FogRowFractions = floatArrayOf(0.22f, 0.50f, 0.78f)
 private val SnowXFractions = floatArrayOf(0.24f, 0.50f, 0.76f)
 
 @Composable
@@ -78,8 +78,9 @@ fun WeatherGlyph(
       StaticZeroPhase
     }
   val scratch = remember { GlyphPathScratch() }
+  val canvasModifier = if (size == Dp.Unspecified) modifier else modifier.size(size)
 
-  Canvas(modifier = modifier.size(size)) {
+  Canvas(modifier = canvasModifier) {
     val w = this.size.width
     val h = this.size.height
     val activePhase = phaseState.value
@@ -90,7 +91,7 @@ fun WeatherGlyph(
       WeatherCondition.CLEAR_NIGHT -> drawClearNight(w, h, activePhase, plasmaAccent, scratch)
       WeatherCondition.PARTLY_CLOUDY -> drawPartlyCloudy(w, h, drift, plasmaAccent)
       WeatherCondition.CLOUDY ->
-        drawCloud(w, h, drift, lerp(CloudMist, plasmaAccent, 0.18f), 1.0f, yCenterFrac = 0.54f)
+        drawCloud(w, h, drift, lerp(CloudMist, plasmaAccent, 0.18f), 1.0f, yCenterFrac = 0.57f, sizeScale = 1.12f)
       WeatherCondition.FOGGY -> drawFog(w, h, drift, lerp(CloudMist, plasmaAccent, 0.25f))
       WeatherCondition.DRIZZLE -> drawRainy(w, h, activePhase, drift, plasmaAccent, heavy = false)
       WeatherCondition.RAINY -> drawRainy(w, h, activePhase, drift, plasmaAccent, heavy = true)
@@ -191,7 +192,7 @@ private fun DrawScope.drawClearNight(
 
 private fun DrawScope.drawPartlyCloudy(w: Float, h: Float, drift: Float, accent: Color) {
   val sunCore = lerp(SunnyGold, accent, 0.18f)
-  val sunCenter = Offset(w * 0.70f - drift * 0.35f, h * 0.32f)
+  val sunCenter = Offset(w * 0.70f - drift * 0.35f, h * 0.30f)
   drawCircle(
     brush = Brush.radialGradient(
       colors = listOf(sunCore.copy(alpha = 0.24f), Color.Transparent),
@@ -201,8 +202,8 @@ private fun DrawScope.drawPartlyCloudy(w: Float, h: Float, drift: Float, accent:
     radius = w * 0.34f,
     center = sunCenter,
   )
-  drawCircle(color = sunCore.copy(alpha = 0.94f), radius = w * 0.20f, center = sunCenter)
-  drawCloud(w, h, drift, lerp(CloudMist, accent, 0.16f), 0.96f, yCenterFrac = 0.64f)
+  drawCircle(color = sunCore.copy(alpha = 0.94f), radius = w * 0.21f, center = sunCenter)
+  drawCloud(w, h, drift, lerp(CloudMist, accent, 0.16f), 0.96f, yCenterFrac = 0.67f, sizeScale = 1.05f)
 }
 
 private fun DrawScope.drawCloud(
@@ -212,11 +213,12 @@ private fun DrawScope.drawCloud(
   color: Color,
   alpha: Float,
   yCenterFrac: Float,
+  sizeScale: Float = 1f,
 ) {
   val cx = w * 0.49f + drift
   val cy = h * yCenterFrac
-  val baseWidth = w * 0.86f
-  val baseHeight = h * 0.30f
+  val baseWidth = w * 0.86f * sizeScale
+  val baseHeight = h * 0.30f * sizeScale
 
   drawRoundRect(
     color = color.copy(alpha = 0.88f * alpha),
@@ -226,13 +228,13 @@ private fun DrawScope.drawCloud(
   )
   drawCircle(
     color = color.copy(alpha = 0.92f * alpha),
-    radius = w * 0.24f,
-    center = Offset(cx - w * 0.09f, cy - h * 0.10f),
+    radius = w * 0.24f * sizeScale,
+    center = Offset(cx - w * 0.09f * sizeScale, cy - h * 0.10f * sizeScale),
   )
   drawCircle(
     color = color.copy(alpha = 0.87f * alpha),
-    radius = w * 0.18f,
-    center = Offset(cx + w * 0.17f, cy - h * 0.03f),
+    radius = w * 0.18f * sizeScale,
+    center = Offset(cx + w * 0.17f * sizeScale, cy - h * 0.03f * sizeScale),
   )
 }
 

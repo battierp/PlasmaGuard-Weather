@@ -364,7 +364,7 @@ class ScreensaverViewModel(application: Application) : AndroidViewModel(applicat
   private fun buildClockDisplay(use24Hour: Boolean): ClockDisplay {
     val now = Date()
     val timePattern = if (use24Hour) "HH:mm" else "h:mm a"
-    val datePattern = "EEEE, MMM d"
+    val datePattern = "EEE, MMM d"
     return ClockDisplay(
       timeText = SimpleDateFormat(timePattern, Locale.getDefault()).format(now),
       dateText = SimpleDateFormat(datePattern, Locale.getDefault()).format(now),

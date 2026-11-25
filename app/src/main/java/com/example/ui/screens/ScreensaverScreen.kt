@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -98,6 +99,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -1561,11 +1563,11 @@ private fun HeroWeatherClusterContent(
   val cityMinSp = ((if (isCompact) 17f else 22f) * scaleFactor).sp
   val dateSp = ((if (isCompact) 19f else 26f) * scaleFactor).sp
   val dateMinSp = ((if (isCompact) 14f else 18f) * scaleFactor).sp
-  val glyphDp = ((if (isCompact) 40f else 56f) * scaleFactor).dp
   val condSp = ((if (isCompact) 19f else 26f) * scaleFactor).sp
   val condMinSp = ((if (isCompact) 13f else 18f) * scaleFactor).sp
-  val tempSp = ((if (isCompact) 54f else 94f) * scaleFactor).sp
-  val unitSp = ((if (isCompact) 26f else 38f) * scaleFactor).sp
+  val tempSp = ((if (isCompact) 50f else 86f) * scaleFactor).sp
+  val unitSp = ((if (isCompact) 24f else 34f) * scaleFactor).sp
+  val feelsSp = ((if (isCompact) 16f else 21f) * scaleFactor).sp
   val detailsSp = ((if (isCompact) 17f else 22f) * scaleFactor).sp
   val detailsMinSp = ((if (isCompact) 12f else 15f) * scaleFactor).sp
   val locIconDp = ((if (isCompact) 18f else 27f) * scaleFactor).dp
@@ -1636,66 +1638,99 @@ private fun HeroWeatherClusterContent(
       )
     }
 
-    // Weather Graphic + Condition Label directly underneath beside Bold Hero Temperature (F/C in degree spot)
+    // Left: Weather Graphic + Condition | Right: Hero Temperature (F/C) + Feels Like directly underneath
+    // Right column sets natural height; left WeatherGlyph expands with weight(1f) so there is zero wasted gap.
     Row(
-      verticalAlignment = Alignment.CenterVertically,
-      horizontalArrangement = Arrangement.spacedBy((if (isCompact) 8f else 10f * scaleFactor).dp),
+      modifier = Modifier.height(IntrinsicSize.Max),
+      verticalAlignment = Alignment.Top,
+      horizontalArrangement = Arrangement.spacedBy((if (isCompact) 10f else 14f * scaleFactor).dp),
     ) {
       Column(
+        modifier = Modifier.fillMaxHeight(),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(1.dp),
       ) {
         WeatherGlyph(
           condition = snapshot.currentCondition,
           plasmaAccent = plasma.primaryAccent,
-          size = glyphDp,
+          size = Dp.Unspecified,
+          modifier =
+            Modifier.weight(1f)
+              .aspectRatio(1f, matchHeightConstraintsFirst = true),
         )
         AutoShrinkSingleLineText(
           text = snapshot.currentCondition.label,
           style =
             MaterialTheme.typography.titleMedium.copy(
               fontSize = condSp,
-              lineHeight = (condSp.value + 2f).sp,
-            ),
-          color = plasma.primaryAccent,
-          minFontSize = condMinSp,
-          modifier =
-            Modifier.widthIn(max = ((if (isCompact) 124f else 136f) * scaleFactor).dp)
-              .testTag("current_condition_text"),
-        )
-      }
-
-      Row(verticalAlignment = Alignment.Top) {
-        Text(
-          text = "${snapshot.currentTemp}",
-          style =
-            MaterialTheme.typography.displayLarge.copy(
-              fontSize = tempSp,
-              lineHeight = (tempSp.value * 0.86f).sp,
+              lineHeight = condSp,
               lineHeightStyle =
                 LineHeightStyle(
                   alignment = LineHeightStyle.Alignment.Center,
                   trim = LineHeightStyle.Trim.Both,
                 ),
             ),
-          color = plasma.primaryTextColor,
-          maxLines = 1,
-          modifier = Modifier.testTag("current_temp_text"),
-        )
-        Text(
-          text = snapshot.tempUnit.symbol.removePrefix("°"),
-          style =
-            MaterialTheme.typography.headlineMedium.copy(
-              fontSize = unitSp,
-              lineHeight = (unitSp.value + 2f).sp,
-            ),
           color = plasma.primaryAccent,
-          modifier = Modifier.padding(top = ((if (isCompact) 2f else 4f) * scaleFactor).dp, start = 2.dp),
+          minFontSize = condMinSp,
+          modifier =
+            Modifier.widthIn(max = ((if (isCompact) 128f else 146f) * scaleFactor).dp)
+              .testTag("current_condition_text"),
+        )
+      }
+
+      Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy((if (isCompact) 1f else 2f * scaleFactor).dp),
+      ) {
+        Row(verticalAlignment = Alignment.Top) {
+          Text(
+            text = "${snapshot.currentTemp}",
+            style =
+              MaterialTheme.typography.displayLarge.copy(
+                fontSize = tempSp,
+                lineHeight = (tempSp.value * 0.86f).sp,
+                lineHeightStyle =
+                  LineHeightStyle(
+                    alignment = LineHeightStyle.Alignment.Center,
+                    trim = LineHeightStyle.Trim.Both,
+                  ),
+              ),
+            color = plasma.primaryTextColor,
+            maxLines = 1,
+            modifier = Modifier.testTag("current_temp_text"),
+          )
+          Text(
+            text = snapshot.tempUnit.symbol.removePrefix("°"),
+            style =
+              MaterialTheme.typography.headlineMedium.copy(
+                fontSize = unitSp,
+                lineHeight = (unitSp.value + 2f).sp,
+              ),
+            color = plasma.primaryAccent,
+            modifier = Modifier.padding(top = ((if (isCompact) 2f else 4f) * scaleFactor).dp, start = 2.dp),
+          )
+        }
+
+        Text(
+          text = "Feels ${snapshot.feelsLikeTemp}°",
+          style =
+            MaterialTheme.typography.bodyLarge.copy(
+              fontSize = feelsSp,
+              lineHeight = feelsSp,
+              lineHeightStyle =
+                LineHeightStyle(
+                  alignment = LineHeightStyle.Alignment.Center,
+                  trim = LineHeightStyle.Trim.Both,
+                ),
+            ),
+          color = plasma.secondaryTextColor,
+          maxLines = 1,
+          softWrap = false,
+          modifier = Modifier.testTag("feels_like_text"),
         )
       }
     }
 
-    // Stacked Secondary Atmospheric Details: Feels/L/H above Humidity/Wind
+    // Stacked Secondary Atmospheric Details: Humidity/Wind, then Low/High, then Sunrise/Sunset
     val detailsContainerModifier =
       if (tightWrap) Modifier.wrapContentWidth() else Modifier.fillMaxWidth()
 
@@ -1714,18 +1749,18 @@ private fun HeroWeatherClusterContent(
           lineHeight = (detailsSp.value + 2f).sp,
         )
 
-      val feelsRangeString =
-        "Feels ${snapshot.feelsLikeTemp}°   L ${snapshot.todayLowTemp}° · H ${snapshot.todayHighTemp}°"
+      val dailyRangeString = "Low ${snapshot.todayLowTemp}° · High ${snapshot.todayHighTemp}°"
       val humidityString = "${snapshot.humidityPercent}%"
       val windString = "${snapshot.windSpeed} ${snapshot.windUnitLabel}"
+      val humidityWindWidthSample = "00  $humidityString      00  $windString"
       val sunriseString =
         formatSunTimeLabel(snapshot.sunriseHour24, snapshot.sunriseMinute, use24Hour)
       val sunsetString =
         formatSunTimeLabel(snapshot.sunsetHour24, snapshot.sunsetMinute, use24Hour)
       val sunRowWidthSample = "00   $sunriseString      00   $sunsetString"
       val detailStrings =
-        remember(feelsRangeString, humidityString, windString, sunRowWidthSample) {
-          listOf(feelsRangeString, humidityString, windString, sunRowWidthSample)
+        remember(dailyRangeString, humidityWindWidthSample, sunRowWidthSample) {
+          listOf(humidityWindWidthSample, dailyRangeString, sunRowWidthSample)
         }
 
       val uniformDetailsSize =
@@ -1741,43 +1776,11 @@ private fun HeroWeatherClusterContent(
           lineHeight = (uniformDetailsSize.value + 2f).sp,
         )
 
-      val feelsRangeText =
-        remember(
-          snapshot.feelsLikeTemp,
-          snapshot.todayLowTemp,
-          snapshot.todayHighTemp,
-          plasma.secondaryTextColor,
-          plasma.primaryTextColor,
-        ) {
-          buildAnnotatedString {
-            withStyle(SpanStyle(color = plasma.secondaryTextColor)) {
-              append("Feels ${snapshot.feelsLikeTemp}°")
-            }
-            append("   ")
-            withStyle(
-              SpanStyle(
-                color = plasma.primaryTextColor,
-                fontWeight = FontWeight.Medium,
-              )
-            ) {
-              append("L ${snapshot.todayLowTemp}° · H ${snapshot.todayHighTemp}°")
-            }
-          }
-        }
-
       Column(
         modifier = if (tightWrap) Modifier.width(IntrinsicSize.Max) else Modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy((if (isCompact) 1f else 2f * scaleFactor).dp),
       ) {
-        Text(
-          text = feelsRangeText,
-          style = detailsStyle,
-          maxLines = 1,
-          softWrap = false,
-          overflow = TextOverflow.Ellipsis,
-        )
-
         Row(
           horizontalArrangement = Arrangement.spacedBy((if (isCompact) 14f else 18f * scaleFactor).dp),
           verticalAlignment = Alignment.CenterVertically,
@@ -1819,6 +1822,16 @@ private fun HeroWeatherClusterContent(
             )
           }
         }
+
+        Text(
+          text = dailyRangeString,
+          style = detailsStyle.copy(fontWeight = FontWeight.Medium),
+          color = plasma.primaryTextColor,
+          maxLines = 1,
+          softWrap = false,
+          overflow = TextOverflow.Ellipsis,
+          modifier = Modifier.testTag("daily_range_text"),
+        )
 
         Row(
           horizontalArrangement = Arrangement.spacedBy((if (isCompact) 14f else 18f * scaleFactor).dp),
