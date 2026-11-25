@@ -53,6 +53,8 @@ data class DailyWeatherDto(
   @Json(name = "temperature_2m_max") val temperature2mMax: List<Double>?,
   @Json(name = "temperature_2m_min") val temperature2mMin: List<Double>?,
   @Json(name = "precipitation_probability_max") val precipitationProbabilityMax: List<Int?>?,
+  @Json(name = "sunrise") val sunrise: List<String?>? = null,
+  @Json(name = "sunset") val sunset: List<String?>? = null,
 )
 
 @JsonClass(generateAdapter = true)

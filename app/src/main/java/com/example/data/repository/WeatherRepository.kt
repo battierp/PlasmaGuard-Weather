@@ -300,6 +300,9 @@ class WeatherRepository(
         )
       }
 
+    val todaySunrise = parseOptionalHourMinute(dailyDto?.sunrise?.firstOrNull())
+    val todaySunset = parseOptionalHourMinute(dailyDto?.sunset?.firstOrNull())
+
     return WeatherSnapshot(
       locationName = settings.cityName,
       latitude = settings.latitude,
@@ -318,9 +321,23 @@ class WeatherRepository(
       next12Hours = next12Hours,
       dailyForecasts = dailyForecasts,
       alerts = resolvedAlerts,
+      sunriseHour24 = todaySunrise?.first,
+      sunriseMinute = todaySunrise?.second,
+      sunsetHour24 = todaySunset?.first,
+      sunsetMinute = todaySunset?.second,
       fetchedAtEpochMs = System.currentTimeMillis(),
       isCached = false,
     )
+  }
+
+  private fun parseOptionalHourMinute(isoTime: String?): Pair<Int, Int>? {
+    if (isoTime.isNullOrBlank()) return null
+    val tIndex = isoTime.indexOf('T')
+    if (tIndex < 0 || tIndex + 5 >= isoTime.length) return null
+    val hh = isoTime.substring(tIndex + 1, tIndex + 3).toIntOrNull() ?: return null
+    val mm = isoTime.substring(tIndex + 4, tIndex + 6).toIntOrNull() ?: return null
+    if (hh !in 0..23 || mm !in 0..59) return null
+    return hh to mm
   }
 
   private fun parseHourMinute(isoTime: String): Pair<Int, Int> {

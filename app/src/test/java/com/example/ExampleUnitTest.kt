@@ -11,6 +11,7 @@ import com.example.data.model.WeatherCondition
 import com.example.data.model.WindSpeedUnit
 import com.example.data.model.aqiCategoryLabel
 import com.example.data.model.degreesToCompass
+import com.example.data.model.formatSunTimeLabel
 import com.example.data.model.precipCategoryLabel
 import com.example.data.repository.deriveMeteorologicalAdvisories
 import com.example.ui.components.HourlyCubeFace
@@ -206,5 +207,16 @@ class ExampleUnitTest {
         showAirQuality = allOff.showBottomBarAirQuality,
       ).isEmpty(),
     )
+  }
+
+  @Test
+  fun `sunrise and sunset times format for 12-hour, 24-hour, and missing data`() {
+    assertEquals("6:45 AM", formatSunTimeLabel(6, 45, use24Hour = false))
+    assertEquals("06:45", formatSunTimeLabel(6, 45, use24Hour = true))
+    assertEquals("5:12 PM", formatSunTimeLabel(17, 12, use24Hour = false))
+    assertEquals("17:12", formatSunTimeLabel(17, 12, use24Hour = true))
+    assertEquals("12:05 AM", formatSunTimeLabel(0, 5, use24Hour = false))
+    assertEquals("12:05 PM", formatSunTimeLabel(12, 5, use24Hour = false))
+    assertEquals("--:--", formatSunTimeLabel(null, null, use24Hour = false))
   }
 }

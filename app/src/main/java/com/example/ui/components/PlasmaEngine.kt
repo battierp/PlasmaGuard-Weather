@@ -3,11 +3,15 @@ package com.example.ui.components
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableDoubleStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -31,15 +35,45 @@ import kotlin.math.PI
 import kotlin.math.hypot
 import kotlin.math.sin
 
-data class PlasmaShieldState(
-  val primaryOffsetX: Dp,
-  val primaryOffsetY: Dp,
+@Immutable
+data class PlasmaColors(
   val primaryTextColor: Color,
   val secondaryTextColor: Color,
   val primaryAccent: Color,
   val secondaryAccent: Color,
-  val pulseFraction: Float,
 )
+
+@Stable
+class PlasmaShieldState(
+  initialColors: PlasmaColors,
+  private val offsetXState: State<Dp>,
+  private val offsetYState: State<Dp>,
+  private val pulseState: State<Float>,
+) {
+  var colors by mutableStateOf(initialColors)
+    internal set
+
+  val primaryOffsetX: Dp
+    get() = offsetXState.value
+
+  val primaryOffsetY: Dp
+    get() = offsetYState.value
+
+  val primaryTextColor: Color
+    get() = colors.primaryTextColor
+
+  val secondaryTextColor: Color
+    get() = colors.secondaryTextColor
+
+  val primaryAccent: Color
+    get() = colors.primaryAccent
+
+  val secondaryAccent: Color
+    get() = colors.secondaryAccent
+
+  val pulseFraction: Float
+    get() = pulseState.value
+}
 
 // Spectrally ordered neighboring hues for Rainbow Timer (least jarring smooth bleed)
 private val RainbowTimerSpectrum =
@@ -70,6 +104,7 @@ private val RainbowBounceSpectrum =
   )
 
 private const val RAINBOW_TIMER_MS_PER_COLOR = 12_000L
+private const val RAINBOW_COLOR_STEP_MS = 100L
 
 internal fun motionModeContentScale(mode: DriftMotionMode): Float =
   when (mode) {
@@ -142,20 +177,24 @@ fun rememberPlasmaShieldState(
   maxTravelXDp: Float = driftIntensity.maxOffsetDp,
   maxTravelYDp: Float = driftIntensity.maxOffsetDp * 0.65f,
 ): PlasmaShieldState {
-  var elapsedMs by remember { mutableLongStateOf(0L) }
-  var perimeterProgress by remember { mutableDoubleStateOf(0.0) }
-  var bounceX by remember { mutableDoubleStateOf(0.0) }
-  var bounceY by remember { mutableDoubleStateOf(0.0) }
+  var rainbowBucketMs by remember { mutableLongStateOf(0L) }
   var bounceColorIndex by remember { mutableIntStateOf(0) }
+  val offsetXDpState = remember { mutableStateOf(0.dp) }
+  val offsetYDpState = remember { mutableStateOf(0.dp) }
+  val pulseFractionState = remember { mutableFloatStateOf(0.5f) }
 
   val currentSpeedMultiplier by rememberUpdatedState(driftIntensity.speedMultiplier)
   val currentMotionMode by rememberUpdatedState(driftMotionMode)
+  val currentTextColorOption by rememberUpdatedState(textColorOption)
   val currentMaxXDp by rememberUpdatedState(maxTravelXDp)
   val currentMaxYDp by rememberUpdatedState(maxTravelYDp)
 
   LaunchedEffect(Unit) {
     val startFrame = withFrameMillis { it }
     var lastFrame = startFrame
+    var perimeterProgress = 0.0
+    var bounceX = 0.0
+    var bounceY = 0.0
     var vxSign = 1.0
     var vySign = 1.0
     var lastEdgeIdx = 0
@@ -164,7 +203,14 @@ fun rememberPlasmaShieldState(
       withFrameMillis { frameTime ->
         val deltaSec = ((frameTime - lastFrame).coerceIn(0L, 250L)) / 1000.0
         lastFrame = frameTime
-        elapsedMs = (frameTime - startFrame).coerceAtLeast(0L)
+        val elapsedMs = (frameTime - startFrame).coerceAtLeast(0L)
+
+        if (currentTextColorOption == TextColorOption.RAINBOW) {
+          val nextBucket = (elapsedMs / RAINBOW_COLOR_STEP_MS) * RAINBOW_COLOR_STEP_MS
+          if (nextBucket != rainbowBucketMs) {
+            rainbowBucketMs = nextBucket
+          }
+        }
 
         val maxX = currentMaxXDp.toDouble().coerceAtLeast(1.0)
         val maxY = currentMaxYDp.toDouble().coerceAtLeast(1.0)
@@ -210,6 +256,8 @@ fun rememberPlasmaShieldState(
             bounceColorIndex = (bounceColorIndex + 1) % RainbowBounceSpectrum.size
           }
           lastEdgeIdx = computeClockwiseEdgeIndex(perimeterProgress, maxX, maxY)
+          offsetXDpState.value = bounceX.toFloat().dp
+          offsetYDpState.value = bounceY.toFloat().dp
         } else {
           val totalPerimeter = (4.0 * maxX + 4.0 * maxY).coerceAtLeast(1.0)
           val perimeterSpeedDpPerSec =
@@ -225,23 +273,15 @@ fun rememberPlasmaShieldState(
             lastEdgeIdx = nextEdgeIdx
             bounceColorIndex = (bounceColorIndex + 1) % RainbowBounceSpectrum.size
           }
+          offsetXDpState.value = edgeX.toFloat().dp
+          offsetYDpState.value = edgeY.toFloat().dp
         }
+
+        val tSec = elapsedMs / 1000.0
+        pulseFractionState.floatValue = (0.5f + 0.5f * sin(tSec * (2.0 * PI / 6.0))).toFloat()
       }
     }
   }
-
-  val tSec = elapsedMs / 1000.0
-  val clampedMaxX = maxTravelXDp.toDouble().coerceAtLeast(1.0)
-  val clampedMaxY = maxTravelYDp.toDouble().coerceAtLeast(1.0)
-
-  val (primaryXVal, primaryYVal) =
-    if (driftMotionMode == DriftMotionMode.DVD_BOUNCE) {
-      bounceX.coerceIn(-clampedMaxX, clampedMaxX) to bounceY.coerceIn(-clampedMaxY, clampedMaxY)
-    } else {
-      computeClockwisePerimeterOffset(perimeterProgress, clampedMaxX, clampedMaxY)
-    }
-  val primaryX = primaryXVal.toFloat().dp
-  val primaryY = primaryYVal.toFloat().dp
 
   val animatedBounceColor by
     animateColorAsState(
@@ -250,67 +290,68 @@ fun rememberPlasmaShieldState(
       label = "rainbow_bounce_color",
     )
 
-  val primaryTextColor: Color
-  val secondaryTextColor: Color
-  val primaryAccent: Color
-  val secondaryAccent: Color
+  val colors =
+    when (textColorOption) {
+      TextColorOption.WHITE ->
+        PlasmaColors(
+          primaryTextColor = SoftFrostText,
+          secondaryTextColor = MutedSlateText,
+          primaryAccent = AuroraCyan,
+          secondaryAccent = SeafoamTeal,
+        )
 
-  when (textColorOption) {
-    TextColorOption.WHITE -> {
-      primaryTextColor = SoftFrostText
-      secondaryTextColor = MutedSlateText
-      primaryAccent = AuroraCyan
-      secondaryAccent = SeafoamTeal
+      TextColorOption.RAINBOW -> {
+        val cycleMs = RainbowTimerSpectrum.size * RAINBOW_TIMER_MS_PER_COLOR
+        val phase = ((rainbowBucketMs % cycleMs).toDouble() / cycleMs.toDouble()).toFloat()
+        val activeColor = sampleCyclicPalette(RainbowTimerSpectrum, phase)
+        PlasmaColors(
+          primaryTextColor = activeColor,
+          secondaryTextColor = activeColor.copy(alpha = 0.80f),
+          primaryAccent = activeColor,
+          secondaryAccent = activeColor.copy(alpha = 0.90f),
+        )
+      }
+
+      TextColorOption.RAINBOW_BOUNCE ->
+        PlasmaColors(
+          primaryTextColor = animatedBounceColor,
+          secondaryTextColor = animatedBounceColor.copy(alpha = 0.80f),
+          primaryAccent = animatedBounceColor,
+          secondaryAccent = animatedBounceColor.copy(alpha = 0.90f),
+        )
+
+      else -> {
+        val fixedColor =
+          when (textColorOption) {
+            TextColorOption.ELECTRIC_CYAN -> AuroraCyan
+            TextColorOption.MINT -> SeafoamTeal
+            TextColorOption.SOLAR_GOLD -> BrightGold
+            TextColorOption.CORAL -> BrightCoral
+            TextColorOption.VIOLET -> SoftAmethyst
+            TextColorOption.COBALT -> BrightCobalt
+            TextColorOption.WHITE,
+            TextColorOption.RAINBOW,
+            TextColorOption.RAINBOW_BOUNCE -> SoftFrostText
+          }
+        PlasmaColors(
+          primaryTextColor = fixedColor,
+          secondaryTextColor = fixedColor.copy(alpha = 0.80f),
+          primaryAccent = fixedColor,
+          secondaryAccent = fixedColor.copy(alpha = 0.90f),
+        )
+      }
     }
 
-    TextColorOption.RAINBOW -> {
-      val cycleMs = RainbowTimerSpectrum.size * RAINBOW_TIMER_MS_PER_COLOR
-      val phase = ((elapsedMs % cycleMs).toDouble() / cycleMs.toDouble()).toFloat()
-      val activeColor = sampleCyclicPalette(RainbowTimerSpectrum, phase)
-      primaryTextColor = activeColor
-      secondaryTextColor = activeColor.copy(alpha = 0.80f)
-      primaryAccent = activeColor
-      secondaryAccent = activeColor.copy(alpha = 0.90f)
-    }
-
-    TextColorOption.RAINBOW_BOUNCE -> {
-      primaryTextColor = animatedBounceColor
-      secondaryTextColor = animatedBounceColor.copy(alpha = 0.80f)
-      primaryAccent = animatedBounceColor
-      secondaryAccent = animatedBounceColor.copy(alpha = 0.90f)
-    }
-
-    else -> {
-      val fixedColor =
-        when (textColorOption) {
-          TextColorOption.ELECTRIC_CYAN -> AuroraCyan
-          TextColorOption.MINT -> SeafoamTeal
-          TextColorOption.SOLAR_GOLD -> BrightGold
-          TextColorOption.CORAL -> BrightCoral
-          TextColorOption.VIOLET -> SoftAmethyst
-          TextColorOption.COBALT -> BrightCobalt
-          TextColorOption.WHITE,
-          TextColorOption.RAINBOW,
-          TextColorOption.RAINBOW_BOUNCE -> SoftFrostText
-        }
-      primaryTextColor = fixedColor
-      secondaryTextColor = fixedColor.copy(alpha = 0.80f)
-      primaryAccent = fixedColor
-      secondaryAccent = fixedColor.copy(alpha = 0.90f)
-    }
+  val shieldState = remember {
+    PlasmaShieldState(
+      initialColors = colors,
+      offsetXState = offsetXDpState,
+      offsetYState = offsetYDpState,
+      pulseState = pulseFractionState,
+    )
   }
-
-  val pulse = (0.5f + 0.5f * sin(tSec * (2.0 * PI / 6.0))).toFloat()
-
-  return PlasmaShieldState(
-    primaryOffsetX = primaryX,
-    primaryOffsetY = primaryY,
-    primaryTextColor = primaryTextColor,
-    secondaryTextColor = secondaryTextColor,
-    primaryAccent = primaryAccent,
-    secondaryAccent = secondaryAccent,
-    pulseFraction = pulse,
-  )
+  shieldState.colors = colors
+  return shieldState
 }
 
 private fun sampleCyclicPalette(palette: List<Color>, fraction: Float): Color {

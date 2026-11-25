@@ -23,7 +23,6 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
@@ -78,6 +77,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -120,11 +120,14 @@ import com.example.data.model.TextColorOption
 import com.example.data.model.WeatherAlert
 import com.example.data.model.WeatherCondition
 import com.example.data.model.WeatherSnapshot
+import com.example.data.model.formatSunTimeLabel
 import com.example.ui.ClockDisplay
 import com.example.ui.ScreensaverViewModel
 import com.example.ui.WeatherUiState
 import com.example.ui.components.PlasmaShieldState
 import com.example.ui.components.RotatingHourlyCubePanel
+import com.example.ui.components.SunriseSunGlyph
+import com.example.ui.components.SunsetMoonGlyph
 import com.example.ui.components.WeatherGlyph
 import com.example.ui.components.rememberPlasmaShieldState
 import com.example.ui.components.resolveEnabledBottomBarFaces
@@ -537,7 +540,10 @@ private fun LoadingWeatherStage(plasma: PlasmaShieldState) {
       verticalArrangement = Arrangement.spacedBy(if (isCompact) 10.dp else 14.dp),
       modifier =
         Modifier.fillMaxWidth()
-          .offset(x = plasma.primaryOffsetX, y = plasma.primaryOffsetY),
+          .graphicsLayer {
+            translationX = plasma.primaryOffsetX.toPx()
+            translationY = plasma.primaryOffsetY.toPx()
+          },
     ) {
       // Matches the cold-boot launch graphic (Sun, Cloud, 3 Raindrops) so cold boot transitions seamlessly
       Canvas(modifier = Modifier.size(width = graphicWidth, height = graphicHeight)) {
@@ -615,9 +621,10 @@ private fun LoadingWeatherStage(plasma: PlasmaShieldState) {
             lineHeight = (loadingSp.value + 4f).sp,
             letterSpacing = 1.5.sp,
           ),
-        color = AuroraCyan.copy(alpha = 0.65f + 0.35f * plasma.pulseFraction),
+        color = AuroraCyan,
         textAlign = TextAlign.Center,
         maxLines = 1,
+        modifier = Modifier.graphicsLayer { alpha = 0.65f + 0.35f * plasma.pulseFraction },
       )
     }
   }
@@ -637,7 +644,11 @@ private fun ErrorWeatherStage(
     Column(
       horizontalAlignment = Alignment.CenterHorizontally,
       verticalArrangement = Arrangement.spacedBy(14.dp),
-      modifier = Modifier.offset(x = plasma.primaryOffsetX, y = plasma.primaryOffsetY),
+      modifier =
+        Modifier.graphicsLayer {
+          translationX = plasma.primaryOffsetX.toPx()
+          translationY = plasma.primaryOffsetY.toPx()
+        },
     ) {
       Text(
         text = "Weather Feed Unavailable",
@@ -739,7 +750,8 @@ private fun TvPreviewPhoneStage(
             modifier =
               Modifier.size(7.dp)
                 .clip(CircleShape)
-                .background(plasma.primaryAccent.copy(alpha = 0.45f + 0.55f * plasma.pulseFraction))
+                .graphicsLayer { alpha = 0.45f + 0.55f * plasma.pulseFraction }
+                .background(plasma.primaryAccent)
           )
           Text(
             text = "DRIFT ACTIVE",
@@ -1163,14 +1175,17 @@ private fun ScreensaverWeatherCanvas(
     ScaledContentBox(
       scale = contentScale,
       modifier =
-        Modifier.offset(x = plasma.primaryOffsetX, y = plasma.primaryOffsetY)
-          .onSizeChanged { renderedSizePx = it },
+        Modifier.graphicsLayer {
+          translationX = plasma.primaryOffsetX.toPx()
+          translationY = plasma.primaryOffsetY.toPx()
+        }.onSizeChanged { renderedSizePx = it },
     ) {
       if (isHeroOnly) {
         // Both 7-Day & 24-Hour OFF -> tight-wrap Hero with minimal borders for maximum TV-edge travel
         HeroWeatherCluster(
           snapshot = snapshot,
           clockDisplay = clockDisplay,
+          use24Hour = settings.use24HourClock,
           plasma = plasma,
           isCompact = !isTvWide || isShortLandscape,
           scaleMode = HeroScaleMode.FULL_MAX,
@@ -1209,6 +1224,7 @@ private fun ScreensaverWeatherCanvas(
                     HeroWeatherCluster(
                       snapshot = snapshot,
                       clockDisplay = clockDisplay,
+                      use24Hour = settings.use24HourClock,
                       plasma = plasma,
                       isCompact = isShortLandscape,
                       scaleMode = HeroScaleMode.STANDARD,
@@ -1258,6 +1274,7 @@ private fun ScreensaverWeatherCanvas(
                     HeroWeatherCluster(
                       snapshot = snapshot,
                       clockDisplay = clockDisplay,
+                      use24Hour = settings.use24HourClock,
                       plasma = plasma,
                       isCompact = isShortLandscape,
                       scaleMode = HeroScaleMode.STANDARD,
@@ -1285,6 +1302,7 @@ private fun ScreensaverWeatherCanvas(
                   HeroWeatherCluster(
                     snapshot = snapshot,
                     clockDisplay = clockDisplay,
+                    use24Hour = settings.use24HourClock,
                     plasma = plasma,
                     isCompact = isShortLandscape,
                     scaleMode = HeroScaleMode.WIDE_CENTERED,
@@ -1316,6 +1334,7 @@ private fun ScreensaverWeatherCanvas(
                   HeroWeatherCluster(
                     snapshot = snapshot,
                     clockDisplay = clockDisplay,
+                    use24Hour = settings.use24HourClock,
                     plasma = plasma,
                     isCompact = true,
                     scaleMode = HeroScaleMode.STANDARD,
@@ -1353,6 +1372,7 @@ private fun ScreensaverWeatherCanvas(
                   HeroWeatherCluster(
                     snapshot = snapshot,
                     clockDisplay = clockDisplay,
+                    use24Hour = settings.use24HourClock,
                     plasma = plasma,
                     isCompact = true,
                     scaleMode = HeroScaleMode.STANDARD,
@@ -1384,6 +1404,7 @@ private fun ScreensaverWeatherCanvas(
                     HeroWeatherCluster(
                       snapshot = snapshot,
                       clockDisplay = clockDisplay,
+                      use24Hour = settings.use24HourClock,
                       plasma = plasma,
                       isCompact = true,
                       scaleMode = HeroScaleMode.WIDE_CENTERED,
@@ -1499,6 +1520,7 @@ private fun SevereWeatherAlertBanner(
 private fun HeroWeatherCluster(
   snapshot: WeatherSnapshot,
   clockDisplay: ClockDisplay,
+  use24Hour: Boolean,
   plasma: PlasmaShieldState,
   isCompact: Boolean,
   scaleMode: HeroScaleMode = HeroScaleMode.STANDARD,
@@ -1515,6 +1537,7 @@ private fun HeroWeatherCluster(
   HeroWeatherClusterContent(
     snapshot = snapshot,
     clockDisplay = clockDisplay,
+    use24Hour = use24Hour,
     plasma = plasma,
     isCompact = isCompact,
     scaleFactor = factor,
@@ -1527,6 +1550,7 @@ private fun HeroWeatherCluster(
 private fun HeroWeatherClusterContent(
   snapshot: WeatherSnapshot,
   clockDisplay: ClockDisplay,
+  use24Hour: Boolean,
   plasma: PlasmaShieldState,
   isCompact: Boolean,
   scaleFactor: Float,
@@ -1694,9 +1718,14 @@ private fun HeroWeatherClusterContent(
         "Feels ${snapshot.feelsLikeTemp}°   L ${snapshot.todayLowTemp}° · H ${snapshot.todayHighTemp}°"
       val humidityString = "${snapshot.humidityPercent}%"
       val windString = "${snapshot.windSpeed} ${snapshot.windUnitLabel}"
+      val sunriseString =
+        formatSunTimeLabel(snapshot.sunriseHour24, snapshot.sunriseMinute, use24Hour)
+      val sunsetString =
+        formatSunTimeLabel(snapshot.sunsetHour24, snapshot.sunsetMinute, use24Hour)
+      val sunRowWidthSample = "00   $sunriseString      00   $sunsetString"
       val detailStrings =
-        remember(feelsRangeString, humidityString, windString) {
-          listOf(feelsRangeString, humidityString, windString)
+        remember(feelsRangeString, humidityString, windString, sunRowWidthSample) {
+          listOf(feelsRangeString, humidityString, windString, sunRowWidthSample)
         }
 
       val uniformDetailsSize =
@@ -1787,6 +1816,46 @@ private fun HeroWeatherClusterContent(
               color = plasma.secondaryTextColor,
               maxLines = 1,
               softWrap = false,
+            )
+          }
+        }
+
+        Row(
+          horizontalArrangement = Arrangement.spacedBy((if (isCompact) 14f else 18f * scaleFactor).dp),
+          verticalAlignment = Alignment.CenterVertically,
+        ) {
+          Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy((if (isCompact) 4f else 6f * scaleFactor).dp),
+          ) {
+            SunriseSunGlyph(
+              accent = plasma.primaryAccent,
+              size = detailIconDp,
+            )
+            Text(
+              text = sunriseString,
+              style = detailsStyle,
+              color = plasma.secondaryTextColor,
+              maxLines = 1,
+              softWrap = false,
+              modifier = Modifier.testTag("sunrise_time_text"),
+            )
+          }
+          Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy((if (isCompact) 4f else 6f * scaleFactor).dp),
+          ) {
+            SunsetMoonGlyph(
+              accent = plasma.secondaryAccent,
+              size = detailIconDp,
+            )
+            Text(
+              text = sunsetString,
+              style = detailsStyle,
+              color = plasma.secondaryTextColor,
+              maxLines = 1,
+              softWrap = false,
+              modifier = Modifier.testTag("sunset_time_text"),
             )
           }
         }

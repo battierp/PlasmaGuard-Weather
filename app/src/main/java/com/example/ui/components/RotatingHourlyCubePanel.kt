@@ -3,7 +3,6 @@ package com.example.ui.components
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -19,22 +18,23 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -46,7 +46,6 @@ import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
@@ -55,6 +54,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import com.example.data.model.HourlyMetricSlot
 import com.example.data.model.HourlySlot
 import com.example.data.model.WeatherSnapshot
@@ -115,25 +115,35 @@ fun RotatingHourlyCubePanel(
   if (enabledFaces.isEmpty()) return
 
   var currentFaceIndex by remember { mutableIntStateOf(0) }
-  var nextFaceIndex by remember { mutableIntStateOf(0) }
+  var nextFaceIndex by remember { mutableIntStateOf(if (enabledFaces.size > 1) 1 else 0) }
+  var isAnimating by remember { mutableStateOf(false) }
   val rollProgress = remember { Animatable(0f) }
-  var panelHeightPx by remember { mutableIntStateOf(0) }
 
   LaunchedEffect(enabledFaces) {
     rollProgress.snapTo(0f)
-    currentFaceIndex = currentFaceIndex.coerceIn(0, enabledFaces.lastIndex)
-    nextFaceIndex = (currentFaceIndex + 1) % enabledFaces.size
+    Snapshot.withMutableSnapshot {
+      isAnimating = false
+      currentFaceIndex = currentFaceIndex.coerceIn(0, enabledFaces.lastIndex)
+      nextFaceIndex = (currentFaceIndex + 1) % enabledFaces.size
+    }
     if (enabledFaces.size > 1) {
       while (true) {
         delay(FACE_HOLD_DURATION_MS)
         val upcoming = (currentFaceIndex + 1) % enabledFaces.size
-        nextFaceIndex = upcoming
         rollProgress.snapTo(0f)
+        Snapshot.withMutableSnapshot {
+          nextFaceIndex = upcoming
+          isAnimating = true
+        }
         rollProgress.animateTo(
           targetValue = 1f,
           animationSpec = tween(durationMillis = CUBE_ROLL_DURATION_MS, easing = CubeRollEasing),
         )
-        currentFaceIndex = upcoming
+        Snapshot.withMutableSnapshot {
+          currentFaceIndex = upcoming
+          nextFaceIndex = (upcoming + 1) % enabledFaces.size
+          isAnimating = false
+        }
         rollProgress.snapTo(0f)
       }
     }
@@ -141,101 +151,97 @@ fun RotatingHourlyCubePanel(
 
   val safeCurrentIndex = currentFaceIndex.coerceIn(0, enabledFaces.lastIndex)
   val safeNextIndex = nextFaceIndex.coerceIn(0, enabledFaces.lastIndex)
-  val p = rollProgress.value.coerceIn(0f, 1f)
-  val isRolling = enabledFaces.size > 1 && p > 0.001f && panelHeightPx > 0
   val currentFace = enabledFaces[safeCurrentIndex]
   val nextFace = enabledFaces[safeNextIndex]
+  val enabledCount = enabledFaces.size
 
   Box(
-    modifier =
-      modifier
-        .onSizeChanged { size ->
-          if (size.height > 0 && !isRolling) {
-            panelHeightPx = size.height
-          }
-        }
-        .testTag("hourly_forecast_section"),
+    modifier = modifier.testTag("hourly_forecast_section"),
   ) {
-    if (!isRolling) {
-      CubeFacePanelContent(
-        face = currentFace,
-        enabledFaces = enabledFaces,
-        snapshot = snapshot,
-        use24Hour = use24Hour,
-        plasma = plasma,
-        isCompact = isCompact,
-        isShortHeight = isShortHeight,
-        expandHeight = expandHeight,
-        modifier = Modifier.fillMaxWidth().then(if (expandHeight) Modifier.fillMaxHeight() else Modifier),
-      )
-    } else {
-      val h = panelHeightPx.toFloat()
-      val alphaRad = p * (PI.toFloat() / 2f)
-      val seamY = (h / 2f) * (1f - cos(alphaRad) + sin(alphaRad))
-      val protrude = (cos(alphaRad) + sin(alphaRad) - 1f).coerceAtLeast(0f)
-      val depthScale = 1f + 0.03f * protrude
-
-      // Outgoing face: hinged at its TOP edge (seamY), rolling downward and tilting away
-      CubeFacePanelContent(
-        face = currentFace,
-        enabledFaces = enabledFaces,
-        snapshot = snapshot,
-        use24Hour = use24Hour,
-        plasma = plasma,
-        isCompact = isCompact,
-        isShortHeight = isShortHeight,
-        expandHeight = expandHeight,
-        modifier =
-          Modifier.fillMaxWidth()
-            .then(if (expandHeight) Modifier.fillMaxHeight() else Modifier)
-            .graphicsLayer {
-              transformOrigin = TransformOrigin(0.5f, 0f)
-              translationY = seamY
-              rotationX = -p * 90f
-              scaleX = depthScale
-              scaleY = depthScale
-              cameraDistance = 20f * density
-              alpha = 1f - ((p - 0.88f) / 0.12f).coerceIn(0f, 1f)
-            }
-            .drawWithContent {
-              drawContent()
-              val shadeAlpha = 0.52f * sin(alphaRad).coerceIn(0f, 1f)
-              if (shadeAlpha > 0.01f) {
-                drawRect(Color.Black.copy(alpha = shadeAlpha))
+    enabledFaces.forEachIndexed { facePosition, entry ->
+      val isCurrent = entry == currentFace
+      val isNext = enabledCount > 1 && entry == nextFace && entry != currentFace
+      key(entry) {
+        CubeFacePanelContent(
+          face = entry,
+          facePosition = facePosition,
+          enabledCount = enabledCount,
+          snapshot = snapshot,
+          use24Hour = use24Hour,
+          plasma = plasma,
+          isCompact = isCompact,
+          isShortHeight = isShortHeight,
+          expandHeight = expandHeight,
+          modifier =
+            Modifier.fillMaxWidth()
+              .then(if (expandHeight) Modifier.fillMaxHeight() else Modifier)
+              .zIndex(
+                when {
+                  isCurrent -> 2f
+                  isNext -> 1f
+                  else -> 0f
+                }
+              )
+              .graphicsLayer {
+                val h = size.height
+                if (!isAnimating || h <= 0f) {
+                  transformOrigin = TransformOrigin.Center
+                  translationY = 0f
+                  rotationX = 0f
+                  scaleX = 1f
+                  scaleY = 1f
+                  // Next face sits pre-rendered directly behind the opaque black current face
+                  alpha =
+                    when {
+                      isCurrent -> 1f
+                      isNext -> 0.01f
+                      else -> 0f
+                    }
+                } else if (isCurrent) {
+                  val p = rollProgress.value.coerceIn(0f, 1f)
+                  val alphaRad = p * (PI.toFloat() / 2f)
+                  val seamY = (h / 2f) * (1f - cos(alphaRad) + sin(alphaRad))
+                  val protrude = (cos(alphaRad) + sin(alphaRad) - 1f).coerceAtLeast(0f)
+                  val depthScale = 1f + 0.03f * protrude
+                  transformOrigin = TransformOrigin(0.5f, 0f)
+                  translationY = seamY
+                  rotationX = -p * 90f
+                  scaleX = depthScale
+                  scaleY = depthScale
+                  cameraDistance = 20f * density
+                  alpha = if (p >= 0.995f) 0f else 1f
+                } else if (isNext) {
+                  val p = rollProgress.value.coerceIn(0f, 1f)
+                  val alphaRad = p * (PI.toFloat() / 2f)
+                  val seamY = (h / 2f) * (1f - cos(alphaRad) + sin(alphaRad))
+                  val protrude = (cos(alphaRad) + sin(alphaRad) - 1f).coerceAtLeast(0f)
+                  val depthScale = 1f + 0.03f * protrude
+                  transformOrigin = TransformOrigin(0.5f, 1f)
+                  translationY = seamY - h
+                  rotationX = (1f - p) * 90f
+                  scaleX = depthScale
+                  scaleY = depthScale
+                  cameraDistance = 20f * density
+                  alpha = 1f
+                } else {
+                  alpha = 0f
+                }
               }
-            },
-      )
-
-      // Incoming face: hinged at its BOTTOM edge (seamY), rolling forward from above
-      CubeFacePanelContent(
-        face = nextFace,
-        enabledFaces = enabledFaces,
-        snapshot = snapshot,
-        use24Hour = use24Hour,
-        plasma = plasma,
-        isCompact = isCompact,
-        isShortHeight = isShortHeight,
-        expandHeight = expandHeight,
-        modifier =
-          Modifier.fillMaxWidth()
-            .then(if (expandHeight) Modifier.fillMaxHeight() else Modifier)
-            .graphicsLayer {
-              transformOrigin = TransformOrigin(0.5f, 1f)
-              translationY = seamY - h
-              rotationX = (1f - p) * 90f
-              scaleX = depthScale
-              scaleY = depthScale
-              cameraDistance = 20f * density
-              alpha = (p / 0.12f).coerceIn(0f, 1f)
-            }
-            .drawWithContent {
-              drawContent()
-              val shadeAlpha = 0.52f * cos(alphaRad).coerceIn(0f, 1f)
-              if (shadeAlpha > 0.01f) {
-                drawRect(Color.Black.copy(alpha = shadeAlpha))
-              }
-            },
-      )
+              .drawWithContent {
+                drawContent()
+                if (isAnimating && (isCurrent || isNext)) {
+                  val p = rollProgress.value.coerceIn(0f, 1f)
+                  val alphaRad = p * (PI.toFloat() / 2f)
+                  val shadeAlpha =
+                    if (isCurrent) (0.95f * sin(alphaRad)).coerceIn(0f, 1f)
+                    else (0.95f * cos(alphaRad)).coerceIn(0f, 1f)
+                  if (shadeAlpha > 0.005f) {
+                    drawRect(Color.Black.copy(alpha = shadeAlpha))
+                  }
+                }
+              },
+        )
+      }
     }
   }
 }
@@ -243,7 +249,8 @@ fun RotatingHourlyCubePanel(
 @Composable
 private fun CubeFacePanelContent(
   face: HourlyCubeFace,
-  enabledFaces: List<HourlyCubeFace>,
+  facePosition: Int,
+  enabledCount: Int,
   snapshot: WeatherSnapshot,
   use24Hour: Boolean,
   plasma: PlasmaShieldState,
@@ -357,11 +364,8 @@ private fun CubeFacePanelContent(
       letterSpacing = (-0.2).sp,
     )
 
-  Surface(
-    modifier = modifier,
-    shape = RoundedCornerShape(20.dp),
-    color = Color.Black,
-    border = null,
+  Box(
+    modifier = modifier.background(Color.Black),
   ) {
     Column(
       modifier =
@@ -388,14 +392,14 @@ private fun CubeFacePanelContent(
           modifier = Modifier.align(Alignment.Center).fillMaxWidth().padding(horizontal = 42.dp),
         )
 
-        if (enabledFaces.size > 1) {
+        if (enabledCount > 1) {
           Row(
             modifier = Modifier.align(Alignment.CenterEnd),
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically,
           ) {
-            enabledFaces.forEach { entry ->
-              val selected = entry == face
+            for (idx in 0 until enabledCount) {
+              val selected = idx == facePosition
               Box(
                 modifier =
                   Modifier.height(4.dp)
@@ -589,12 +593,7 @@ private fun CubeSlotCard(
   fillVertical: Boolean,
   modifier: Modifier = Modifier,
 ) {
-  Surface(
-    modifier = modifier,
-    shape = RoundedCornerShape(14.dp),
-    color = Color.Transparent,
-    border = null,
-  ) {
+  Box(modifier = modifier) {
     Column(
       modifier =
         Modifier.then(if (fillVertical) Modifier.fillMaxSize() else Modifier)
@@ -685,89 +684,92 @@ private fun PrecipitationGlyph(
   plasmaAccent: Color,
   size: Dp,
 ) {
-  Canvas(modifier = Modifier.size(size)) {
-    val w = this.size.width
-    val h = this.size.height
-    val cx = w * 0.5f
-    val topY = h * 0.06f
-    val bottomY = h * 0.94f
-    val dropHalfW = w * 0.34f
-    val bellyY = h * 0.62f
+  Box(
+    modifier =
+      Modifier.size(size).drawWithCache {
+        val w = this.size.width
+        val h = this.size.height
+        val cx = w * 0.5f
+        val topY = h * 0.06f
+        val bottomY = h * 0.94f
+        val dropHalfW = w * 0.34f
+        val bellyY = h * 0.62f
 
-    val droplet =
-      Path().apply {
-        moveTo(cx, topY)
-        cubicTo(
-          cx + dropHalfW * 0.55f,
-          h * 0.30f,
-          cx + dropHalfW,
-          h * 0.48f,
-          cx + dropHalfW,
-          bellyY,
-        )
-        cubicTo(
-          cx + dropHalfW,
-          h * 0.82f,
-          cx + dropHalfW * 0.55f,
-          bottomY,
-          cx,
-          bottomY,
-        )
-        cubicTo(
-          cx - dropHalfW * 0.55f,
-          bottomY,
-          cx - dropHalfW,
-          h * 0.82f,
-          cx - dropHalfW,
-          bellyY,
-        )
-        cubicTo(
-          cx - dropHalfW,
-          h * 0.48f,
-          cx - dropHalfW * 0.55f,
-          h * 0.30f,
-          cx,
-          topY,
-        )
-        close()
+        val droplet =
+          Path().apply {
+            moveTo(cx, topY)
+            cubicTo(
+              cx + dropHalfW * 0.55f,
+              h * 0.30f,
+              cx + dropHalfW,
+              h * 0.48f,
+              cx + dropHalfW,
+              bellyY,
+            )
+            cubicTo(
+              cx + dropHalfW,
+              h * 0.82f,
+              cx + dropHalfW * 0.55f,
+              bottomY,
+              cx,
+              bottomY,
+            )
+            cubicTo(
+              cx - dropHalfW * 0.55f,
+              bottomY,
+              cx - dropHalfW,
+              h * 0.82f,
+              cx - dropHalfW,
+              bellyY,
+            )
+            cubicTo(
+              cx - dropHalfW,
+              h * 0.48f,
+              cx - dropHalfW * 0.55f,
+              h * 0.30f,
+              cx,
+              topY,
+            )
+            close()
+          }
+
+        val strokeColor = lerp(RainBlue, plasmaAccent, 0.28f)
+        val fillFrac = (precipProbability.coerceIn(0, 100) / 100f)
+        val effectiveFrac = (fillFrac * 0.90f + 0.06f).coerceIn(0f, 1f)
+        val liquidTop = bottomY - (bottomY - topY) * effectiveFrac
+        val liquidBrush =
+          Brush.verticalGradient(
+            colors = listOf(AuroraCyan.copy(alpha = 0.92f), RainBlue.copy(alpha = 0.96f)),
+            startY = liquidTop,
+            endY = bottomY,
+          )
+        val borderStroke = Stroke(width = (w * 0.055f).coerceAtLeast(1.8f), cap = StrokeCap.Round)
+        val highlightWidth = (w * 0.045f).coerceAtLeast(1.5f)
+        val highlightStart = Offset(cx - dropHalfW * 0.52f, h * 0.50f)
+        val highlightEnd = Offset(cx - dropHalfW * 0.58f, h * 0.66f)
+
+        onDrawBehind {
+          drawPath(droplet, color = strokeColor.copy(alpha = 0.14f))
+          if (fillFrac > 0f) {
+            clipPath(droplet) {
+              drawRect(
+                brush = liquidBrush,
+                topLeft = Offset(0f, liquidTop),
+                size = Size(w, bottomY - liquidTop + 2f),
+              )
+            }
+          }
+          drawPath(path = droplet, color = strokeColor.copy(alpha = 0.90f), style = borderStroke)
+          drawLine(
+            color = Color.White.copy(alpha = 0.50f),
+            start = highlightStart,
+            end = highlightEnd,
+            strokeWidth = highlightWidth,
+            cap = StrokeCap.Round,
+          )
+        }
       }
-
-    val strokeColor = lerp(RainBlue, plasmaAccent, 0.28f)
-    drawPath(droplet, color = strokeColor.copy(alpha = 0.14f))
-
-    val fillFrac = (precipProbability.coerceIn(0, 100) / 100f)
-    if (fillFrac > 0f) {
-      val effectiveFrac = (fillFrac * 0.90f + 0.06f).coerceIn(0f, 1f)
-      val liquidTop = bottomY - (bottomY - topY) * effectiveFrac
-      clipPath(droplet) {
-        drawRect(
-          brush =
-            Brush.verticalGradient(
-              colors = listOf(AuroraCyan.copy(alpha = 0.92f), RainBlue.copy(alpha = 0.96f)),
-              startY = liquidTop,
-              endY = bottomY,
-            ),
-          topLeft = Offset(0f, liquidTop),
-          size = Size(w, bottomY - liquidTop + 2f),
-        )
-      }
-    }
-
-    drawPath(
-      path = droplet,
-      color = strokeColor.copy(alpha = 0.90f),
-      style = Stroke(width = (w * 0.055f).coerceAtLeast(1.8f), cap = StrokeCap.Round),
-    )
-
-    // Specular highlight arc on upper-left cheek of droplet
-    drawLine(
-      color = Color.White.copy(alpha = 0.50f),
-      start = Offset(cx - dropHalfW * 0.52f, h * 0.50f),
-      end = Offset(cx - dropHalfW * 0.58f, h * 0.66f),
-      strokeWidth = (w * 0.045f).coerceAtLeast(1.5f),
-      cap = StrokeCap.Round,
-    )
-  }
+  )
 }
 
 @Composable
@@ -778,6 +780,7 @@ private fun WindCompassGlyph(
   plasmaAccent: Color,
   size: Dp,
 ) {
+  val arrowPath = remember { Path() }
   Canvas(modifier = Modifier.size(size)) {
     val w = this.size.width
     val h = this.size.height
@@ -835,14 +838,12 @@ private fun WindCompassGlyph(
     // Wind arrow pointing in the direction the wind blows (meteorological direction + 180°)
     val arrowLen = radius * 0.56f
     val wingW = radius * 0.30f
-    val arrowPath =
-      Path().apply {
-        moveTo(cx, cy - arrowLen)
-        lineTo(cx + wingW, cy + arrowLen * 0.58f)
-        lineTo(cx, cy + arrowLen * 0.22f)
-        lineTo(cx - wingW, cy + arrowLen * 0.58f)
-        close()
-      }
+    arrowPath.reset()
+    arrowPath.moveTo(cx, cy - arrowLen)
+    arrowPath.lineTo(cx + wingW, cy + arrowLen * 0.58f)
+    arrowPath.lineTo(cx, cy + arrowLen * 0.22f)
+    arrowPath.lineTo(cx - wingW, cy + arrowLen * 0.58f)
+    arrowPath.close()
     rotate(degrees = (windDirectionDeg + 180).toFloat(), pivot = Offset(cx, cy)) {
       drawPath(arrowPath, color = windColor.copy(alpha = 0.95f))
     }

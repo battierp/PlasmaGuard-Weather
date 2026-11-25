@@ -27,7 +27,7 @@ interface OpenMeteoForecastApi {
       "temperature_2m,weather_code,precipitation_probability,is_day,wind_speed_10m,wind_direction_10m,wind_gusts_10m",
     @Query("daily")
     daily: String =
-      "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max",
+      "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset",
     @Query("temperature_unit") temperatureUnit: String,
     @Query("wind_speed_unit") windSpeedUnit: String,
     @Query("timezone") timezone: String = "auto",

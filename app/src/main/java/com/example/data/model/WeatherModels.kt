@@ -1,6 +1,7 @@
 package com.example.data.model
 
 import com.squareup.moshi.JsonClass
+import java.util.Locale
 import kotlin.math.abs
 
 enum class WeatherCondition(val label: String, val shortLabel: String) {
@@ -149,6 +150,10 @@ data class WeatherSnapshot(
   val next12Hours: List<HourlyMetricSlot> = emptyList(),
   val dailyForecasts: List<DailyForecast>,
   val alerts: List<WeatherAlert> = emptyList(),
+  val sunriseHour24: Int? = null,
+  val sunriseMinute: Int? = null,
+  val sunsetHour24: Int? = null,
+  val sunsetMinute: Int? = null,
   val fetchedAtEpochMs: Long,
   val isCached: Boolean = false,
 )
@@ -191,3 +196,19 @@ fun aqiCategoryLabel(usAqi: Int?): String =
     usAqi <= 300 -> "VPoor"
     else -> "Haz"
   }
+
+fun formatSunTimeLabel(hour24: Int?, minute: Int?, use24Hour: Boolean): String {
+  if (hour24 == null || minute == null) return "--:--"
+  return if (use24Hour) {
+    String.format(Locale.getDefault(), "%02d:%02d", hour24, minute)
+  } else {
+    val h12 =
+      when {
+        hour24 == 0 -> 12
+        hour24 > 12 -> hour24 - 12
+        else -> hour24
+      }
+    val amPm = if (hour24 < 12) "AM" else "PM"
+    String.format(Locale.getDefault(), "%d:%02d %s", h12, minute, amPm)
+  }
+}
