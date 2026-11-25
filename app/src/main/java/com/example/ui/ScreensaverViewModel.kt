@@ -13,6 +13,7 @@ import com.example.data.model.TemperatureUnit
 import com.example.data.model.TextColorOption
 import com.example.data.model.WeatherSnapshot
 import com.example.data.model.WindSpeedUnit
+import com.example.data.model.normalizeCityAutocompleteQuery
 import com.example.data.remote.NetworkModule
 import com.example.data.repository.WeatherRepository
 import java.text.SimpleDateFormat
@@ -76,6 +77,8 @@ class ScreensaverViewModel(application: Application) : AndroidViewModel(applicat
   private val _locationSwapBanner = MutableStateFlow<String?>(null)
   val locationSwapBanner: StateFlow<String?> = _locationSwapBanner.asStateFlow()
   private var swapBannerJob: Job? = null
+  private var searchJob: Job? = null
+  private var lastCompletedSearchQuery: String = ""
 
   init {
     viewModelScope.launch {
@@ -158,37 +161,90 @@ class ScreensaverViewModel(application: Application) : AndroidViewModel(applicat
   }
 
   fun updateSearchQuery(query: String) {
+    searchJob?.cancel()
+    val normalized = normalizeCityAutocompleteQuery(query)
+    if (normalized == null) {
+      lastCompletedSearchQuery = ""
+      _citySearchState.update {
+        it.copy(
+          query = query,
+          isSearching = false,
+          results = emptyList(),
+          statusMessage = null,
+        )
+      }
+      return
+    }
+
     _citySearchState.update { it.copy(query = query, statusMessage = null) }
+    searchJob =
+      viewModelScope.launch {
+        delay(320L)
+        executeCitySearch(query = normalized, showNoResultsMessage = false)
+      }
   }
 
   fun submitCitySearch() {
-    val q = _citySearchState.value.query.trim()
-    if (q.length < 2) {
-      _citySearchState.update { it.copy(statusMessage = "Enter at least 2 characters to search") }
+    searchJob?.cancel()
+    val normalized = normalizeCityAutocompleteQuery(_citySearchState.value.query)
+    if (normalized == null) {
+      _citySearchState.update {
+        it.copy(
+          isSearching = false,
+          results = emptyList(),
+          statusMessage = "Enter at least 2 characters to search",
+        )
+      }
       return
     }
-    viewModelScope.launch {
-      _citySearchState.update { it.copy(isSearching = true, statusMessage = null) }
-      weatherRepo
-        .searchCities(q)
-        .onSuccess { list ->
-          _citySearchState.update {
-            it.copy(
-              isSearching = false,
-              results = list,
-              statusMessage = if (list.isEmpty()) "No matching locations found" else null,
-            )
-          }
-        }
-        .onFailure {
-          _citySearchState.update {
-            it.copy(isSearching = false, statusMessage = "Location search failed — check internet")
-          }
-        }
+    if (lastCompletedSearchQuery == normalized && _citySearchState.value.results.isNotEmpty()) {
+      _citySearchState.update { it.copy(isSearching = false, statusMessage = null) }
+      return
     }
+    searchJob =
+      viewModelScope.launch {
+        executeCitySearch(query = normalized, showNoResultsMessage = true)
+      }
+  }
+
+  private suspend fun executeCitySearch(
+    query: String,
+    showNoResultsMessage: Boolean,
+  ) {
+    _citySearchState.update { it.copy(isSearching = true, statusMessage = null) }
+    weatherRepo
+      .searchCities(query)
+      .onSuccess { list ->
+        if (_citySearchState.value.query.trim() != query) return@onSuccess
+        lastCompletedSearchQuery = query
+        _citySearchState.update {
+          it.copy(
+            isSearching = false,
+            results = list,
+            statusMessage =
+              if (list.isEmpty() && (showNoResultsMessage || query.length >= 3)) {
+                "No matching locations found"
+              } else {
+                null
+              },
+          )
+        }
+      }
+      .onFailure {
+        if (_citySearchState.value.query.trim() != query) return@onFailure
+        _citySearchState.update {
+          it.copy(
+            isSearching = false,
+            statusMessage =
+              if (showNoResultsMessage) "Location search failed — check internet" else null,
+          )
+        }
+      }
   }
 
   fun selectCity(city: CitySearchResult) {
+    searchJob?.cancel()
+    lastCompletedSearchQuery = ""
     viewModelScope.launch {
       prefsRepo.saveLocation(
         cityName = city.name,
@@ -201,6 +257,7 @@ class ScreensaverViewModel(application: Application) : AndroidViewModel(applicat
       _citySearchState.update {
         it.copy(
           query = "",
+          isSearching = false,
           results = emptyList(),
           statusMessage = "Location set & saved: ${city.name}",
         )

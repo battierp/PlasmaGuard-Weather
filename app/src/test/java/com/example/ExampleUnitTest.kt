@@ -12,6 +12,7 @@ import com.example.data.model.WindSpeedUnit
 import com.example.data.model.aqiCategoryLabel
 import com.example.data.model.degreesToCompass
 import com.example.data.model.formatSunTimeLabel
+import com.example.data.model.normalizeCityAutocompleteQuery
 import com.example.data.model.precipCategoryLabel
 import com.example.data.repository.deriveMeteorologicalAdvisories
 import com.example.ui.components.HourlyCubeFace
@@ -218,5 +219,15 @@ class ExampleUnitTest {
     assertEquals("12:05 AM", formatSunTimeLabel(0, 5, use24Hour = false))
     assertEquals("12:05 PM", formatSunTimeLabel(12, 5, use24Hour = false))
     assertEquals("--:--", formatSunTimeLabel(null, null, use24Hour = false))
+  }
+
+  @Test
+  fun `autocomplete normalizes query and requires at least 2 non-whitespace characters`() {
+    assertEquals(null, normalizeCityAutocompleteQuery(""))
+    assertEquals(null, normalizeCityAutocompleteQuery(" "))
+    assertEquals(null, normalizeCityAutocompleteQuery("a"))
+    assertEquals(null, normalizeCityAutocompleteQuery(" a "))
+    assertEquals("se", normalizeCityAutocompleteQuery(" se "))
+    assertEquals("Seattle", normalizeCityAutocompleteQuery("  Seattle  "))
   }
 }

@@ -136,8 +136,8 @@ class WeatherRepository(
   suspend fun searchCities(query: String): Result<List<CitySearchResult>> =
     withContext(Dispatchers.IO) {
       runCatching {
-        val trimmed = query.trim()
-        if (trimmed.length < 2) return@runCatching emptyList()
+        val trimmed = com.example.data.model.normalizeCityAutocompleteQuery(query)
+          ?: return@runCatching emptyList()
         val response = NetworkModule.geocodingApi.searchCity(trimmed)
         response.results.orEmpty().mapNotNull { item ->
           val name = item.name ?: return@mapNotNull null
@@ -150,7 +150,7 @@ class WeatherRepository(
             latitude = lat,
             longitude = lon,
           )
-        }
+        }.distinctBy { it.displayName }
       }
     }
 

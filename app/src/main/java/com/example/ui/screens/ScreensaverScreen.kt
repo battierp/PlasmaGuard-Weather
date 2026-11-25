@@ -202,7 +202,7 @@ fun ScreensaverRoute(
       showSettingsButton = false
     } else {
       showSettingsButton = true
-      delay(30_000L)
+      delay(15_000L)
       showSettingsButton = false
     }
   }

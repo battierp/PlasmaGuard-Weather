@@ -212,3 +212,8 @@ fun formatSunTimeLabel(hour24: Int?, minute: Int?, use24Hour: Boolean): String {
     String.format(Locale.getDefault(), "%d:%02d %s", h12, minute, amPm)
   }
 }
+
+fun normalizeCityAutocompleteQuery(raw: String): String? {
+  val trimmed = raw.trim()
+  return if (trimmed.length >= 2) trimmed else null
+}

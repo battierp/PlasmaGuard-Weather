@@ -7,6 +7,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,6 +27,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -55,8 +57,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
@@ -72,10 +72,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -108,6 +110,7 @@ import com.example.ui.theme.SeafoamTeal
 import com.example.ui.theme.SoftAmethyst
 import com.example.ui.theme.SoftFrostText
 import com.example.ui.theme.SubtleOutline
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -147,6 +150,7 @@ fun SettingsOverlay(
 
   var isSearchEditing by remember { mutableStateOf(false) }
   var searchBoxFocused by remember { mutableStateOf(false) }
+  var searchFieldFocused by remember { mutableStateOf(false) }
   var searchBtnFocused by remember { mutableStateOf(false) }
   var searchFieldAcquiredFocus by remember { mutableStateOf(false) }
   var pendingFocusFirstResult by remember { mutableStateOf(false) }
@@ -162,14 +166,30 @@ fun SettingsOverlay(
   LaunchedEffect(isSearchEditing) {
     if (isSearchEditing) {
       searchFieldAcquiredFocus = false
-      withFrameNanos {}
-      runCatching { searchFieldFocusRequester.requestFocus() }
+      for (attempt in 0 until 6) {
+        withFrameNanos {}
+        if (searchFieldFocused) break
+        runCatching { searchFieldFocusRequester.requestFocus() }
+        if (!searchFieldFocused && attempt >= 2) {
+          delay(24L)
+        }
+      }
       keyboardController?.show()
     } else {
       keyboardController?.hide()
-      if (pendingFocusFirstResult && !searchBtnFocused) {
+      if (pendingFocusFirstResult && !searchBtnFocused && !searchBoxFocused) {
         withFrameNanos {}
         runCatching { searchBoxFocusRequester.requestFocus() }
+      }
+    }
+  }
+
+  LaunchedEffect(isSearchEditing, searchFieldFocused) {
+    if (isSearchEditing && !searchFieldFocused && searchFieldAcquiredFocus) {
+      delay(80L)
+      if (!searchFieldFocused) {
+        searchFieldAcquiredFocus = false
+        isSearchEditing = false
       }
     }
   }
@@ -186,6 +206,9 @@ fun SettingsOverlay(
 
   LaunchedEffect(pendingFocusSearchAfterSelect, citySearchState.results) {
     if (pendingFocusSearchAfterSelect && citySearchState.results.isEmpty()) {
+      searchFieldFocused = false
+      searchFieldAcquiredFocus = false
+      isSearchEditing = false
       withFrameNanos {}
       runCatching { searchBoxFocusRequester.requestFocus() }
       pendingFocusSearchAfterSelect = false
@@ -193,6 +216,8 @@ fun SettingsOverlay(
   }
 
   BackHandler(enabled = isSearchEditing) {
+    searchFieldFocused = false
+    searchFieldAcquiredFocus = false
     isSearchEditing = false
     keyboardController?.hide()
     runCatching { searchBoxFocusRequester.requestFocus() }
@@ -277,84 +302,100 @@ fun SettingsOverlay(
           horizontalArrangement = Arrangement.spacedBy(10.dp),
           verticalAlignment = Alignment.CenterVertically,
         ) {
-          if (isSearchEditing) {
-            OutlinedTextField(
-              value = citySearchState.query,
-              onValueChange = onQueryChange,
+          val isSearchHighlighted = searchBoxFocused || isSearchEditing || searchFieldFocused
+          val searchScale by animateFloatAsState(
+            targetValue = if (isSearchHighlighted) 1.015f else 1f,
+            label = "search_scale",
+          )
+          Box(
+            modifier = Modifier.weight(1f).scale(searchScale).defaultMinSize(minHeight = 56.dp),
+            contentAlignment = Alignment.CenterStart,
+          ) {
+            // Non-nested sibling activation layer for D-pad focus & OK press when not actively typing
+            Box(
               modifier =
-                Modifier.weight(1f)
-                  .focusRequester(searchFieldFocusRequester)
-                  .onFocusChanged { focusState ->
-                    if (focusState.isFocused) {
-                      searchFieldAcquiredFocus = true
-                    } else if (searchFieldAcquiredFocus) {
-                      isSearchEditing = false
-                    }
-                  }
-                  .testTag("city_search_input"),
-              placeholder = {
-                Text(
-                  "Search city or zip code (e.g. Seattle, 90210)",
-                  color = SoftFrostText.copy(alpha = 0.65f),
-                )
-              },
-              singleLine = true,
-              keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-              keyboardActions =
-                KeyboardActions(
-                  onSearch = {
-                    pendingFocusFirstResult = true
-                    isSearchEditing = false
-                    keyboardController?.hide()
-                    onSearchSubmit()
-                  }
-                ),
-              shape = RoundedCornerShape(14.dp),
-              colors =
-                OutlinedTextFieldDefaults.colors(
-                  focusedTextColor = SoftFrostText,
-                  unfocusedTextColor = SoftFrostText,
-                  focusedBorderColor = BrightGold,
-                  unfocusedBorderColor = SubtleOutline,
-                  focusedContainerColor = DeepCardSurface,
-                  unfocusedContainerColor = DeepCardSurface,
-                ),
-            )
-          } else {
-            val searchScale by animateFloatAsState(targetValue = if (searchBoxFocused) 1.015f else 1f, label = "search_scale")
-            Surface(
-              modifier =
-                Modifier.weight(1f)
-                  .scale(searchScale)
-                  .defaultMinSize(minHeight = 56.dp)
+                Modifier.matchParentSize()
                   .clip(RoundedCornerShape(14.dp))
                   .focusRequester(searchBoxFocusRequester)
+                  .focusProperties { canFocus = !searchFieldFocused }
                   .onFocusChanged { searchBoxFocused = it.isFocused }
-                  .clickable { isSearchEditing = true }
-                  .testTag("city_search_input"),
+                  .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                  ) {
+                    if (!isSearchEditing) {
+                      searchFieldAcquiredFocus = false
+                      isSearchEditing = true
+                    }
+                  }
+                  .then(if (isSearchEditing) Modifier else Modifier.testTag("city_search_input"))
+            )
+
+            // Persistent visual Surface + permanently mounted BasicTextField (never detached between searches)
+            Surface(
+              modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 56.dp),
               shape = RoundedCornerShape(14.dp),
-              color = if (searchBoxFocused) lerp(DeepCardSurface, BrightGold, 0.16f) else DeepCardSurface,
+              color = if (isSearchHighlighted) lerp(DeepCardSurface, BrightGold, 0.16f) else DeepCardSurface,
               border =
                 BorderStroke(
-                  width = if (searchBoxFocused) 3.dp else 1.dp,
-                  color = if (searchBoxFocused) BrightGold else SubtleOutline,
+                  width = if (isSearchHighlighted) 3.dp else 1.dp,
+                  color = if (isSearchHighlighted) BrightGold else SubtleOutline,
                 ),
             ) {
               Box(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 15.dp),
                 contentAlignment = Alignment.CenterStart,
               ) {
-                Text(
-                  text =
-                    citySearchState.query.ifBlank {
-                      "Search city or zip code (press OK to type)"
-                    },
-                  style = MaterialTheme.typography.bodyLarge,
-                  color =
-                    if (citySearchState.query.isNotBlank()) SoftFrostText
-                    else SoftFrostText.copy(alpha = 0.65f),
-                  maxLines = 1,
-                  overflow = TextOverflow.Ellipsis,
+                BasicTextField(
+                  value = citySearchState.query,
+                  onValueChange = onQueryChange,
+                  enabled = isSearchEditing,
+                  readOnly = !isSearchEditing,
+                  modifier =
+                    Modifier.fillMaxWidth()
+                      .focusRequester(searchFieldFocusRequester)
+                      .onFocusChanged { focusState ->
+                        val nowFocused = focusState.isFocused || focusState.hasFocus
+                        searchFieldFocused = nowFocused
+                        if (nowFocused) {
+                          searchFieldAcquiredFocus = true
+                        }
+                      }
+                      .then(if (isSearchEditing) Modifier.testTag("city_search_input") else Modifier),
+                  singleLine = true,
+                  textStyle = MaterialTheme.typography.bodyLarge.copy(color = SoftFrostText),
+                  cursorBrush = SolidColor(BrightGold),
+                  keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                  keyboardActions =
+                    KeyboardActions(
+                      onSearch = {
+                        pendingFocusFirstResult = true
+                        searchFieldFocused = false
+                        searchFieldAcquiredFocus = false
+                        isSearchEditing = false
+                        keyboardController?.hide()
+                        onSearchSubmit()
+                      }
+                    ),
+                  decorationBox = { innerTextField ->
+                    Box(
+                      modifier = Modifier.fillMaxWidth(),
+                      contentAlignment = Alignment.CenterStart,
+                    ) {
+                      if (citySearchState.query.isEmpty()) {
+                        Text(
+                          text =
+                            if (isSearchEditing) "Type city or zip code..."
+                            else "Search city or zip code (press OK to type)",
+                          style = MaterialTheme.typography.bodyLarge,
+                          color = SoftFrostText.copy(alpha = 0.65f),
+                          maxLines = 1,
+                          overflow = TextOverflow.Ellipsis,
+                        )
+                      }
+                      innerTextField()
+                    }
+                  },
                 )
               }
             }
@@ -364,6 +405,8 @@ fun SettingsOverlay(
             onClick = {
               if (!citySearchState.isSearching) {
                 pendingFocusFirstResult = true
+                searchFieldFocused = false
+                searchFieldAcquiredFocus = false
                 isSearchEditing = false
                 keyboardController?.hide()
                 onSearchSubmit()
@@ -404,6 +447,12 @@ fun SettingsOverlay(
                 .padding(6.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
           ) {
+            Text(
+              text = "Suggestions (press Down or Search to select)",
+              style = MaterialTheme.typography.labelSmall,
+              color = SoftFrostText.copy(alpha = 0.72f),
+              modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+            )
             citySearchState.results.take(5).forEachIndexed { index, city ->
               var focused by remember { mutableStateOf(false) }
               Row(
@@ -420,7 +469,11 @@ fun SettingsOverlay(
                     .then(if (index == 0) Modifier.focusRequester(firstResultFocusRequester) else Modifier)
                     .onFocusChanged { focused = it.isFocused }
                     .clickable {
+                      searchFieldFocused = false
+                      searchFieldAcquiredFocus = false
+                      isSearchEditing = false
                       pendingFocusSearchAfterSelect = true
+                      runCatching { searchBoxFocusRequester.requestFocus() }
                       onSelectCity(city)
                     }
                     .padding(horizontal = 12.dp, vertical = 10.dp)
