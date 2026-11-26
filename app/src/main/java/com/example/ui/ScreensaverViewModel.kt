@@ -3,6 +3,7 @@ package com.example.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.BuildConfig
 import com.example.data.local.UserPreferencesRepository
 import com.example.data.local.UserSettings
 import com.example.data.model.CitySearchResult
@@ -13,9 +14,13 @@ import com.example.data.model.TemperatureUnit
 import com.example.data.model.TextColorOption
 import com.example.data.model.WeatherSnapshot
 import com.example.data.model.WindSpeedUnit
+import com.example.data.model.isRemoteVersionNewer
 import com.example.data.model.normalizeCityAutocompleteQuery
+import com.example.data.model.normalizeVersionTag
 import com.example.data.remote.NetworkModule
 import com.example.data.repository.WeatherRepository
+import com.example.data.update.AppUpdateManager
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -52,6 +57,30 @@ data class CitySearchUiState(
   val statusMessage: String? = null,
 )
 
+sealed interface AppUpdateUiState {
+  data object Idle : AppUpdateUiState
+  data object Checking : AppUpdateUiState
+  data class UpToDate(val currentVersion: String) : AppUpdateUiState
+  data class UpdateAvailable(
+    val currentVersion: String,
+    val latestVersion: String,
+    val downloadUrl: String,
+    val releasePageUrl: String,
+  ) : AppUpdateUiState
+  data class Downloading(
+    val latestVersion: String,
+    val downloadedBytes: Long,
+    val totalBytes: Long,
+  ) : AppUpdateUiState
+  data class ReadyToInstall(
+    val latestVersion: String,
+    val apkFile: File,
+    val autoLaunchInstall: Boolean = true,
+  ) : AppUpdateUiState
+  data class Error(val message: String) : AppUpdateUiState
+  data object RepoNotConfigured : AppUpdateUiState
+}
+
 private const val AUTO_ROTATE_INTERVAL_MS = 120_000L
 
 class ScreensaverViewModel(application: Application) : AndroidViewModel(application) {
@@ -76,8 +105,13 @@ class ScreensaverViewModel(application: Application) : AndroidViewModel(applicat
 
   private val _locationSwapBanner = MutableStateFlow<String?>(null)
   val locationSwapBanner: StateFlow<String?> = _locationSwapBanner.asStateFlow()
+
+  private val _appUpdateState = MutableStateFlow<AppUpdateUiState>(AppUpdateUiState.Idle)
+  val appUpdateState: StateFlow<AppUpdateUiState> = _appUpdateState.asStateFlow()
+
   private var swapBannerJob: Job? = null
   private var searchJob: Job? = null
+  private var updateCheckJob: Job? = null
   private var lastCompletedSearchQuery: String = ""
 
   init {
@@ -359,6 +393,105 @@ class ScreensaverViewModel(application: Application) : AndroidViewModel(applicat
 
   fun setAutoRotateLocations(enabled: Boolean) {
     viewModelScope.launch { prefsRepo.setAutoRotateLocations(enabled) }
+  }
+
+  fun checkForAppUpdate() {
+    val repo = BuildConfig.GITHUB_REPO.trim()
+    val parts = repo.split("/").filter { it.isNotBlank() }
+    if (parts.size != 2) {
+      _appUpdateState.value = AppUpdateUiState.RepoNotConfigured
+      return
+    }
+    if (_appUpdateState.value is AppUpdateUiState.Checking || _appUpdateState.value is AppUpdateUiState.Downloading) {
+      return
+    }
+
+    updateCheckJob?.cancel()
+    updateCheckJob =
+      viewModelScope.launch {
+        _appUpdateState.value = AppUpdateUiState.Checking
+        runCatching {
+          NetworkModule.gitHubReleasesApi.getLatestRelease(owner = parts[0], repo = parts[1])
+        }.onSuccess { release ->
+          val currentVersion = normalizeVersionTag(BuildConfig.VERSION_NAME).ifBlank { "1.01" }
+          val latestVersion = normalizeVersionTag(release.tagName).ifBlank { release.tagName }
+          val apkUrl =
+            release.assets.firstOrNull { it.name.endsWith(".apk", ignoreCase = true) }?.browserDownloadUrl
+              ?.trim()
+              .orEmpty()
+          val pageUrl = release.htmlUrl.ifBlank { apkUrl }
+
+          if (isRemoteVersionNewer(currentVersion = currentVersion, remoteTag = release.tagName)) {
+            _appUpdateState.value =
+              AppUpdateUiState.UpdateAvailable(
+                currentVersion = currentVersion,
+                latestVersion = latestVersion,
+                downloadUrl = apkUrl,
+                releasePageUrl = pageUrl,
+              )
+          } else {
+            _appUpdateState.value = AppUpdateUiState.UpToDate(currentVersion = currentVersion)
+          }
+        }.onFailure { error ->
+          _appUpdateState.value =
+            AppUpdateUiState.Error(
+              error.localizedMessage ?: "Unable to check GitHub Releases right now."
+            )
+        }
+      }
+  }
+
+  fun downloadUpdateApk(latestVersion: String, downloadUrl: String) {
+    if (downloadUrl.isBlank()) {
+      _appUpdateState.value =
+        AppUpdateUiState.Error("Release v$latestVersion does not have an APK file attached yet.")
+      return
+    }
+    if (_appUpdateState.value is AppUpdateUiState.Downloading) return
+
+    updateCheckJob?.cancel()
+    updateCheckJob =
+      viewModelScope.launch {
+        _appUpdateState.value =
+          AppUpdateUiState.Downloading(
+            latestVersion = latestVersion,
+            downloadedBytes = 0L,
+            totalBytes = -1L,
+          )
+        runCatching {
+          AppUpdateManager.downloadApk(
+            context = getApplication(),
+            downloadUrl = downloadUrl,
+            versionLabel = latestVersion,
+          ) { downloadedBytes, totalBytes ->
+            _appUpdateState.value =
+              AppUpdateUiState.Downloading(
+                latestVersion = latestVersion,
+                downloadedBytes = downloadedBytes,
+                totalBytes = totalBytes,
+              )
+          }
+        }.onSuccess { apkFile ->
+          _appUpdateState.value =
+            AppUpdateUiState.ReadyToInstall(
+              latestVersion = latestVersion,
+              apkFile = apkFile,
+              autoLaunchInstall = true,
+            )
+        }.onFailure { error ->
+          _appUpdateState.value =
+            AppUpdateUiState.Error(
+              error.localizedMessage ?: "Unable to download update v$latestVersion."
+            )
+        }
+      }
+  }
+
+  fun consumeAutoInstallLaunch() {
+    val current = _appUpdateState.value
+    if (current is AppUpdateUiState.ReadyToInstall && current.autoLaunchInstall) {
+      _appUpdateState.value = current.copy(autoLaunchInstall = false)
+    }
   }
 
   private fun buildClockDisplay(use24Hour: Boolean): ClockDisplay {

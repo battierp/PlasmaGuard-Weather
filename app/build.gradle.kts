@@ -17,7 +17,10 @@ android {
     minSdk = 24
     targetSdk = 36
     versionCode = (project.findProperty("versionCode") as String?)?.toIntOrNull() ?: 1
-    versionName = "1.0"
+    versionName = (project.findProperty("versionName") as String?)?.takeIf { it.isNotBlank() } ?: "1.01"
+
+    val githubRepo = (project.findProperty("githubRepo") as String?)?.trim().orEmpty()
+    buildConfigField("String", "GITHUB_REPO", "\"$githubRepo\"")
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }

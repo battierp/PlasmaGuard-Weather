@@ -46,6 +46,7 @@ import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.Sync
+import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -55,12 +56,14 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -80,12 +83,17 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.example.BuildConfig
 import com.example.data.local.MAX_SAVED_LOCATIONS
 import com.example.data.local.UserSettings
 import com.example.data.model.CitySearchResult
@@ -96,6 +104,9 @@ import com.example.data.model.TemperatureUnit
 import com.example.data.model.TextColorOption
 import com.example.data.model.WeatherAlert
 import com.example.data.model.WindSpeedUnit
+import com.example.data.model.normalizeVersionTag
+import com.example.data.update.AppUpdateManager
+import com.example.ui.AppUpdateUiState
 import com.example.ui.CitySearchUiState
 import com.example.ui.theme.AuroraCyan
 import com.example.ui.theme.BrightCobalt
@@ -139,9 +150,14 @@ fun SettingsOverlay(
   onSelectDriftMotionMode: (DriftMotionMode) -> Unit,
   onSelectTextColor: (TextColorOption) -> Unit,
   onRefreshWeather: () -> Unit,
+  appUpdateState: AppUpdateUiState = AppUpdateUiState.Idle,
+  onCheckForAppUpdate: () -> Unit = {},
+  onDownloadAndInstallUpdate: (String, String) -> Unit = { _, _ -> },
+  onConsumeAutoInstallLaunch: () -> Unit = {},
 ) {
   BackHandler(onBack = onDismiss)
 
+  val context = LocalContext.current
   val keyboardController = LocalSoftwareKeyboardController.current
   val closeButtonFocusRequester = remember { FocusRequester() }
   val searchBoxFocusRequester = remember { FocusRequester() }
@@ -861,6 +877,316 @@ fun SettingsOverlay(
           style = MaterialTheme.typography.labelSmall,
           color = SoftFrostText.copy(alpha = 0.78f),
         )
+
+        HorizontalDivider(color = SubtleOutline)
+
+        // App Updates (very last setting at the bottom)
+        val installedVersion = normalizeVersionTag(BuildConfig.VERSION_NAME).ifBlank { "1.01" }
+        var installActionError by remember(appUpdateState) { mutableStateOf<String?>(null) }
+        var canInstallUnknownApps by remember {
+          mutableStateOf(AppUpdateManager.canRequestPackageInstalls(context))
+        }
+        val lifecycleOwner = LocalLifecycleOwner.current
+        DisposableEffect(lifecycleOwner, context) {
+          val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+              canInstallUnknownApps = AppUpdateManager.canRequestPackageInstalls(context)
+            }
+          }
+          lifecycleOwner.lifecycle.addObserver(observer)
+          onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+        }
+
+        LaunchedEffect(appUpdateState, canInstallUnknownApps) {
+          if (
+            appUpdateState is AppUpdateUiState.ReadyToInstall &&
+              appUpdateState.autoLaunchInstall &&
+              canInstallUnknownApps
+          ) {
+            onConsumeAutoInstallLaunch()
+            AppUpdateManager.launchApkInstall(context, appUpdateState.apkFile).onFailure { err ->
+              installActionError = err.localizedMessage ?: "Unable to launch package installer."
+            }
+          }
+        }
+
+        SectionHeader(
+          icon = Icons.Rounded.SystemUpdate,
+          title = "App Updates",
+          tint = accentColor,
+        )
+        Surface(
+          modifier = Modifier.fillMaxWidth(),
+          shape = RoundedCornerShape(16.dp),
+          color = DeepCardSurface,
+          border = BorderStroke(1.dp, SubtleOutline),
+        ) {
+          Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+          ) {
+            Text(
+              text = "Installed version: v$installedVersion",
+              style = MaterialTheme.typography.labelLarge,
+              color = SoftFrostText,
+            )
+
+            val statusLine =
+              when (appUpdateState) {
+                is AppUpdateUiState.Idle ->
+                  "Check GitHub Releases to download and install updates in-app."
+                is AppUpdateUiState.Checking ->
+                  "Checking GitHub Releases..."
+                is AppUpdateUiState.UpToDate ->
+                  "You are up to date (v${appUpdateState.currentVersion})."
+                is AppUpdateUiState.UpdateAvailable ->
+                  "New version ready: v${appUpdateState.latestVersion}"
+                is AppUpdateUiState.Downloading -> {
+                  val pct =
+                    if (appUpdateState.totalBytes > 0L) {
+                      ((appUpdateState.downloadedBytes * 100L) / appUpdateState.totalBytes)
+                        .toInt()
+                        .coerceIn(0, 100)
+                    } else {
+                      null
+                    }
+                  val dlMb = appUpdateState.downloadedBytes / (1024f * 1024f)
+                  if (pct != null) {
+                    val totalMb = appUpdateState.totalBytes / (1024f * 1024f)
+                    "Downloading v${appUpdateState.latestVersion}... $pct% (%.1f / %.1f MB)".format(dlMb, totalMb)
+                  } else {
+                    "Downloading v${appUpdateState.latestVersion}... %.1f MB".format(dlMb)
+                  }
+                }
+                is AppUpdateUiState.ReadyToInstall ->
+                  if (canInstallUnknownApps) {
+                    "v${appUpdateState.latestVersion} downloaded and ready to install."
+                  } else {
+                    "v${appUpdateState.latestVersion} downloaded. Allow PlasmaSky to install updates in Android Settings, then press Install."
+                  }
+                is AppUpdateUiState.Error ->
+                  appUpdateState.message
+                is AppUpdateUiState.RepoNotConfigured ->
+                  "In-app updates are enabled on APKs built by GitHub Actions."
+              }
+
+            Text(
+              text = installActionError ?: statusLine,
+              style = MaterialTheme.typography.bodyMedium,
+              color =
+                when {
+                  installActionError != null -> BrightCoral
+                  appUpdateState is AppUpdateUiState.UpdateAvailable -> BrightGold
+                  appUpdateState is AppUpdateUiState.Downloading -> accentColor
+                  appUpdateState is AppUpdateUiState.ReadyToInstall ->
+                    if (canInstallUnknownApps) SeafoamTeal else BrightGold
+                  appUpdateState is AppUpdateUiState.Error -> BrightCoral
+                  appUpdateState is AppUpdateUiState.UpToDate -> SeafoamTeal
+                  else -> MutedSlateText
+                },
+            )
+
+            if (appUpdateState is AppUpdateUiState.Downloading) {
+              if (appUpdateState.totalBytes > 0L) {
+                val fraction =
+                  (appUpdateState.downloadedBytes.toFloat() / appUpdateState.totalBytes.toFloat())
+                    .coerceIn(0f, 1f)
+                LinearProgressIndicator(
+                  progress = { fraction },
+                  modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape),
+                  color = accentColor,
+                  trackColor = SubtleOutline,
+                )
+              } else {
+                LinearProgressIndicator(
+                  modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape),
+                  color = accentColor,
+                  trackColor = SubtleOutline,
+                )
+              }
+            }
+
+            FlowRow(
+              horizontalArrangement = Arrangement.spacedBy(10.dp),
+              verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+              val isBusy =
+                appUpdateState is AppUpdateUiState.Checking ||
+                  appUpdateState is AppUpdateUiState.Downloading
+              var checkFocused by remember { mutableStateOf(false) }
+              val checkScale by animateFloatAsState(
+                targetValue = if (checkFocused) 1.05f else 1f,
+                label = "update_check_scale",
+              )
+              OutlinedButton(
+                onClick = {
+                  installActionError = null
+                  onCheckForAppUpdate()
+                },
+                enabled = !isBusy,
+                modifier =
+                  Modifier.scale(checkScale)
+                    .minimumInteractiveComponentSize()
+                    .onFocusChanged { checkFocused = it.isFocused || it.hasFocus }
+                    .testTag("check_app_update_button"),
+                shape = RoundedCornerShape(14.dp),
+                border =
+                  BorderStroke(
+                    width = if (checkFocused) 3.dp else 1.dp,
+                    color = if (checkFocused) BrightGold else SubtleOutline,
+                  ),
+                colors =
+                  ButtonDefaults.outlinedButtonColors(
+                    containerColor =
+                      if (checkFocused) lerp(DeepCardSurface, BrightGold, 0.16f) else Color.Transparent,
+                  ),
+              ) {
+                if (isBusy) {
+                  CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    strokeWidth = 2.dp,
+                    color = accentColor,
+                  )
+                } else {
+                  Icon(
+                    imageVector = Icons.Rounded.SystemUpdate,
+                    contentDescription = null,
+                    tint = accentColor,
+                    modifier = Modifier.size(18.dp),
+                  )
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                  text =
+                    when (appUpdateState) {
+                      is AppUpdateUiState.Checking -> "Checking..."
+                      is AppUpdateUiState.Downloading -> "Downloading..."
+                      else -> "Check for Updates"
+                    },
+                  color = SoftFrostText,
+                )
+              }
+
+              if (appUpdateState is AppUpdateUiState.UpdateAvailable) {
+                var installNowFocused by remember { mutableStateOf(false) }
+                val installNowScale by animateFloatAsState(
+                  targetValue = if (installNowFocused) 1.05f else 1f,
+                  label = "download_install_scale",
+                )
+                Button(
+                  onClick = {
+                    installActionError = null
+                    onDownloadAndInstallUpdate(
+                      appUpdateState.latestVersion,
+                      appUpdateState.downloadUrl,
+                    )
+                  },
+                  modifier =
+                    Modifier.scale(installNowScale)
+                      .minimumInteractiveComponentSize()
+                      .onFocusChanged { installNowFocused = it.isFocused || it.hasFocus }
+                      .testTag("download_install_update_button"),
+                  shape = RoundedCornerShape(14.dp),
+                  border = if (installNowFocused) BorderStroke(3.dp, BrightGold) else null,
+                  colors =
+                    ButtonDefaults.buttonColors(
+                      containerColor = BrightGold,
+                      contentColor = ObsidianBlack,
+                    ),
+                ) {
+                  Icon(
+                    imageVector = Icons.Rounded.SystemUpdate,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                  )
+                  Spacer(modifier = Modifier.width(6.dp))
+                  Text(
+                    text = "Update to v${appUpdateState.latestVersion}",
+                    fontWeight = FontWeight.SemiBold,
+                  )
+                }
+              }
+
+              if (appUpdateState is AppUpdateUiState.ReadyToInstall) {
+                if (!canInstallUnknownApps) {
+                  var permFocused by remember { mutableStateOf(false) }
+                  val permScale by animateFloatAsState(
+                    targetValue = if (permFocused) 1.05f else 1f,
+                    label = "perm_install_scale",
+                  )
+                  Button(
+                    onClick = {
+                      installActionError = null
+                      runCatching {
+                        context.startActivity(
+                          AppUpdateManager.createUnknownSourcesPermissionIntent(context)
+                        )
+                      }.onFailure { err ->
+                        installActionError =
+                          err.localizedMessage ?: "Unable to open Install Unknown Apps settings."
+                      }
+                    },
+                    modifier =
+                      Modifier.scale(permScale)
+                        .minimumInteractiveComponentSize()
+                        .onFocusChanged { permFocused = it.isFocused || it.hasFocus }
+                        .testTag("grant_install_permission_button"),
+                    shape = RoundedCornerShape(14.dp),
+                    border = if (permFocused) BorderStroke(3.dp, BrightGold) else null,
+                    colors =
+                      ButtonDefaults.buttonColors(
+                        containerColor = BrightGold,
+                        contentColor = ObsidianBlack,
+                      ),
+                  ) {
+                    Text(
+                      text = "Allow App Installs",
+                      fontWeight = FontWeight.SemiBold,
+                    )
+                  }
+                } else {
+                  var installFocused by remember { mutableStateOf(false) }
+                  val installScale by animateFloatAsState(
+                    targetValue = if (installFocused) 1.05f else 1f,
+                    label = "install_apk_scale",
+                  )
+                  Button(
+                    onClick = {
+                      installActionError = null
+                      AppUpdateManager.launchApkInstall(context, appUpdateState.apkFile).onFailure { err ->
+                        installActionError =
+                          err.localizedMessage ?: "Unable to start Android package installer."
+                      }
+                    },
+                    modifier =
+                      Modifier.scale(installScale)
+                        .minimumInteractiveComponentSize()
+                        .onFocusChanged { installFocused = it.isFocused || it.hasFocus }
+                        .testTag("install_downloaded_apk_button"),
+                    shape = RoundedCornerShape(14.dp),
+                    border = if (installFocused) BorderStroke(3.dp, BrightGold) else null,
+                    colors =
+                      ButtonDefaults.buttonColors(
+                        containerColor = SeafoamTeal,
+                        contentColor = ObsidianBlack,
+                      ),
+                  ) {
+                    Icon(
+                      imageVector = Icons.Rounded.SystemUpdate,
+                      contentDescription = null,
+                      modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                      text = "Install v${appUpdateState.latestVersion}",
+                      fontWeight = FontWeight.SemiBold,
+                    )
+                  }
+                }
+              }
+            }
+          }
+        }
       }
     }
   }

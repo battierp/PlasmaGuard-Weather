@@ -26,6 +26,7 @@ import androidx.compose.ui.graphics.PathOperation
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -42,11 +43,110 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
 
-private class GlyphPathScratch {
+private class GlyphRenderCache {
   val crescent = Path()
   val cutout = Path()
   val unionResult = Path()
   val bolt = Path()
+
+  private var cachedW: Float = -1f
+  private var cachedH: Float = -1f
+  private var cachedAccent: Color = Color.Unspecified
+  private var cachedCondition: WeatherCondition? = null
+
+  var sunnyGlowBrush: Brush? = null
+  var sunnyDiscBrush: Brush? = null
+  var moonGlowBrush: Brush? = null
+  var partlyCloudyGlowBrush: Brush? = null
+  var nightMoonColor: Color = Color.Unspecified
+  var partlySunCenter: Offset = Offset.Zero
+
+  fun ensureUpdated(w: Float, h: Float, accent: Color, condition: WeatherCondition) {
+    if (cachedW == w && cachedH == h && cachedAccent == accent && cachedCondition == condition) {
+      return
+    }
+    cachedW = w
+    cachedH = h
+    cachedAccent = accent
+    cachedCondition = condition
+
+    when (condition) {
+      WeatherCondition.SUNNY -> {
+        val center = Offset(w * 0.5f, h * 0.5f)
+        val sunCore = lerp(SunnyGold, accent, 0.22f)
+        sunnyGlowBrush =
+          Brush.radialGradient(
+            colors = listOf(sunCore.copy(alpha = 0.26f), Color.Transparent),
+            center = center,
+            radius = (w * 0.49f).coerceAtLeast(1f),
+          )
+        sunnyDiscBrush =
+          Brush.radialGradient(
+            colors = listOf(sunCore.copy(alpha = 0.96f), lerp(sunCore, Color(0xFFD97706), 0.35f)),
+            center = Offset(center.x - w * 0.05f, center.y - h * 0.05f),
+            radius = (w * 0.28f).coerceAtLeast(1f),
+          )
+      }
+
+      WeatherCondition.CLEAR_NIGHT -> {
+        val center = Offset(w * 0.48f, h * 0.54f)
+        val moonRadius = w * 0.36f
+        val moonTint = lerp(TwilightIndigo, accent, 0.35f)
+        moonGlowBrush =
+          Brush.radialGradient(
+            colors = listOf(moonTint.copy(alpha = 0.22f), Color.Transparent),
+            center = center,
+            radius = (w * 0.48f).coerceAtLeast(1f),
+          )
+        nightMoonColor = lerp(Color(0xFFE2E8F0), moonTint, 0.30f).copy(alpha = 0.92f)
+        crescent.reset()
+        crescent.addOval(
+          Rect(
+            center.x - moonRadius,
+            center.y - moonRadius,
+            center.x + moonRadius,
+            center.y + moonRadius,
+          )
+        )
+        cutout.reset()
+        cutout.addOval(
+          Rect(
+            center.x - moonRadius * 0.35f,
+            center.y - moonRadius * 1.15f,
+            center.x + moonRadius * 1.35f,
+            center.y + moonRadius * 0.55f,
+          )
+        )
+        unionResult.reset()
+        unionResult.op(crescent, cutout, PathOperation.Difference)
+      }
+
+      WeatherCondition.PARTLY_CLOUDY -> {
+        val sunCore = lerp(SunnyGold, accent, 0.18f)
+        val sunCenter = Offset(w * 0.70f, h * 0.30f)
+        partlySunCenter = sunCenter
+        partlyCloudyGlowBrush =
+          Brush.radialGradient(
+            colors = listOf(sunCore.copy(alpha = 0.24f), Color.Transparent),
+            center = sunCenter,
+            radius = (w * 0.34f).coerceAtLeast(1f),
+          )
+      }
+
+      WeatherCondition.STORMY -> {
+        bolt.reset()
+        bolt.moveTo(w * 0.55f, h * 0.48f)
+        bolt.lineTo(w * 0.38f, h * 0.71f)
+        bolt.lineTo(w * 0.52f, h * 0.71f)
+        bolt.lineTo(w * 0.42f, h * 0.95f)
+        bolt.lineTo(w * 0.65f, h * 0.64f)
+        bolt.lineTo(w * 0.51f, h * 0.64f)
+        bolt.close()
+      }
+
+      else -> Unit
+    }
+  }
 }
 
 private val StaticZeroPhase: State<Float> = mutableFloatStateOf(0f)
@@ -77,44 +177,52 @@ fun WeatherGlyph(
     } else {
       StaticZeroPhase
     }
-  val scratch = remember { GlyphPathScratch() }
+  val cache = remember { GlyphRenderCache() }
   val canvasModifier = if (size == Dp.Unspecified) modifier else modifier.size(size)
 
   Canvas(modifier = canvasModifier) {
     val w = this.size.width
     val h = this.size.height
+    cache.ensureUpdated(w, h, plasmaAccent, condition)
     val activePhase = phaseState.value
-    val drift = sin(activePhase * 2f * PI.toFloat()) * (w * 0.025f)
+    val drift = if (animated) sin(activePhase * 2f * PI.toFloat()) * (w * 0.025f) else 0f
 
     when (condition) {
-      WeatherCondition.SUNNY -> drawSunny(w, h, activePhase, plasmaAccent)
-      WeatherCondition.CLEAR_NIGHT -> drawClearNight(w, h, activePhase, plasmaAccent, scratch)
-      WeatherCondition.PARTLY_CLOUDY -> drawPartlyCloudy(w, h, drift, plasmaAccent)
+      WeatherCondition.SUNNY -> drawSunny(w, h, activePhase, plasmaAccent, cache)
+      WeatherCondition.CLEAR_NIGHT -> drawClearNight(w, h, activePhase, plasmaAccent, cache)
+      WeatherCondition.PARTLY_CLOUDY -> drawPartlyCloudy(w, h, drift, plasmaAccent, cache)
       WeatherCondition.CLOUDY ->
         drawCloud(w, h, drift, lerp(CloudMist, plasmaAccent, 0.18f), 1.0f, yCenterFrac = 0.57f, sizeScale = 1.12f)
       WeatherCondition.FOGGY -> drawFog(w, h, drift, lerp(CloudMist, plasmaAccent, 0.25f))
       WeatherCondition.DRIZZLE -> drawRainy(w, h, activePhase, drift, plasmaAccent, heavy = false)
       WeatherCondition.RAINY -> drawRainy(w, h, activePhase, drift, plasmaAccent, heavy = true)
       WeatherCondition.SNOWY -> drawSnowy(w, h, activePhase, drift, plasmaAccent)
-      WeatherCondition.STORMY -> drawStormy(w, h, activePhase, drift, plasmaAccent, scratch)
+      WeatherCondition.STORMY -> drawStormy(w, h, activePhase, drift, plasmaAccent, cache)
     }
   }
 }
 
-private fun DrawScope.drawSunny(w: Float, h: Float, phase: Float, accent: Color) {
+private fun DrawScope.drawSunny(
+  w: Float,
+  h: Float,
+  phase: Float,
+  accent: Color,
+  cache: GlyphRenderCache,
+) {
   val center = Offset(w * 0.5f, h * 0.5f)
   val sunCore = lerp(SunnyGold, accent, 0.22f)
   val pulse = 1f + 0.03f * sin(phase * 2f * PI.toFloat())
 
-  drawCircle(
-    brush = Brush.radialGradient(
-      colors = listOf(sunCore.copy(alpha = 0.26f), Color.Transparent),
-      center = center,
-      radius = w * 0.49f * pulse,
-    ),
-    radius = w * 0.49f * pulse,
-    center = center,
-  )
+  val glowBrush = cache.sunnyGlowBrush
+  if (glowBrush != null) {
+    withTransform({ scale(pulse, pulse, pivot = center) }) {
+      drawCircle(
+        brush = glowBrush,
+        radius = w * 0.49f,
+        center = center,
+      )
+    }
+  }
 
   val rayInner = w * 0.31f
   val rayOuter = w * 0.45f * pulse
@@ -130,15 +238,14 @@ private fun DrawScope.drawSunny(w: Float, h: Float, phase: Float, accent: Color)
     )
   }
 
-  drawCircle(
-    brush = Brush.radialGradient(
-      colors = listOf(sunCore.copy(alpha = 0.96f), lerp(sunCore, Color(0xFFD97706), 0.35f)),
-      center = Offset(center.x - w * 0.05f, center.y - h * 0.05f),
-      radius = w * 0.28f,
-    ),
-    radius = w * 0.24f,
-    center = center,
-  )
+  val discBrush = cache.sunnyDiscBrush
+  if (discBrush != null) {
+    drawCircle(
+      brush = discBrush,
+      radius = w * 0.24f,
+      center = center,
+    )
+  }
 }
 
 private fun DrawScope.drawClearNight(
@@ -146,43 +253,21 @@ private fun DrawScope.drawClearNight(
   h: Float,
   phase: Float,
   accent: Color,
-  scratch: GlyphPathScratch,
+  cache: GlyphRenderCache,
 ) {
   val moonTint = lerp(TwilightIndigo, accent, 0.35f)
   val center = Offset(w * 0.48f, h * 0.54f)
-  val moonRadius = w * 0.36f
 
-  drawCircle(
-    brush = Brush.radialGradient(
-      colors = listOf(moonTint.copy(alpha = 0.22f), Color.Transparent),
-      center = center,
+  val moonGlow = cache.moonGlowBrush
+  if (moonGlow != null) {
+    drawCircle(
+      brush = moonGlow,
       radius = w * 0.48f,
-    ),
-    radius = w * 0.48f,
-    center = center,
-  )
+      center = center,
+    )
+  }
 
-  scratch.crescent.reset()
-  scratch.crescent.addOval(
-    Rect(
-      center.x - moonRadius,
-      center.y - moonRadius,
-      center.x + moonRadius,
-      center.y + moonRadius,
-    )
-  )
-  scratch.cutout.reset()
-  scratch.cutout.addOval(
-    Rect(
-      center.x - moonRadius * 0.35f,
-      center.y - moonRadius * 1.15f,
-      center.x + moonRadius * 1.35f,
-      center.y + moonRadius * 0.55f,
-    )
-  )
-  scratch.unionResult.reset()
-  scratch.unionResult.op(scratch.crescent, scratch.cutout, PathOperation.Difference)
-  drawPath(scratch.unionResult, color = lerp(Color(0xFFE2E8F0), moonTint, 0.30f).copy(alpha = 0.92f))
+  drawPath(cache.unionResult, color = cache.nightMoonColor)
 
   val star1Alpha = 0.45f + 0.5f * (0.5f + 0.5f * sin(phase * 2f * PI.toFloat()))
   val star2Alpha = 0.45f + 0.5f * (0.5f + 0.5f * cos(phase * 2f * PI.toFloat()))
@@ -190,19 +275,30 @@ private fun DrawScope.drawClearNight(
   drawCircle(color = Color.White.copy(alpha = star2Alpha * 0.8f), radius = w * 0.030f, center = Offset(w * 0.20f, h * 0.25f))
 }
 
-private fun DrawScope.drawPartlyCloudy(w: Float, h: Float, drift: Float, accent: Color) {
+private fun DrawScope.drawPartlyCloudy(
+  w: Float,
+  h: Float,
+  drift: Float,
+  accent: Color,
+  cache: GlyphRenderCache,
+) {
   val sunCore = lerp(SunnyGold, accent, 0.18f)
-  val sunCenter = Offset(w * 0.70f - drift * 0.35f, h * 0.30f)
+  val dx = -drift * 0.35f
+  val glowBrush = cache.partlyCloudyGlowBrush
+  if (glowBrush != null) {
+    withTransform({ translate(left = dx, top = 0f) }) {
+      drawCircle(
+        brush = glowBrush,
+        radius = w * 0.34f,
+        center = cache.partlySunCenter,
+      )
+    }
+  }
   drawCircle(
-    brush = Brush.radialGradient(
-      colors = listOf(sunCore.copy(alpha = 0.24f), Color.Transparent),
-      center = sunCenter,
-      radius = w * 0.34f,
-    ),
-    radius = w * 0.34f,
-    center = sunCenter,
+    color = sunCore.copy(alpha = 0.94f),
+    radius = w * 0.21f,
+    center = Offset(cache.partlySunCenter.x + dx, cache.partlySunCenter.y),
   )
-  drawCircle(color = sunCore.copy(alpha = 0.94f), radius = w * 0.21f, center = sunCenter)
   drawCloud(w, h, drift, lerp(CloudMist, accent, 0.16f), 0.96f, yCenterFrac = 0.67f, sizeScale = 1.05f)
 }
 
@@ -305,22 +401,14 @@ private fun DrawScope.drawStormy(
   phase: Float,
   drift: Float,
   accent: Color,
-  scratch: GlyphPathScratch,
+  cache: GlyphRenderCache,
 ) {
   drawCloud(w, h, drift, lerp(Color(0xFF94A3B8), accent, 0.26f), 0.97f, yCenterFrac = 0.38f)
   val boltColor = lerp(SunnyGold, StormViolet, 0.25f)
   val pulseAlpha = 0.58f + 0.42f * sin(phase * 4f * PI.toFloat()).coerceAtLeast(0f)
 
-  scratch.bolt.reset()
-  scratch.bolt.moveTo(w * 0.55f, h * 0.48f)
-  scratch.bolt.lineTo(w * 0.38f, h * 0.71f)
-  scratch.bolt.lineTo(w * 0.52f, h * 0.71f)
-  scratch.bolt.lineTo(w * 0.42f, h * 0.95f)
-  scratch.bolt.lineTo(w * 0.65f, h * 0.64f)
-  scratch.bolt.lineTo(w * 0.51f, h * 0.64f)
-  scratch.bolt.close()
-  drawPath(scratch.bolt, color = boltColor.copy(alpha = pulseAlpha))
-  drawPath(scratch.bolt, color = Color.White.copy(alpha = pulseAlpha * 0.25f), style = Stroke(width = 1f))
+  drawPath(cache.bolt, color = boltColor.copy(alpha = pulseAlpha))
+  drawPath(cache.bolt, color = Color.White.copy(alpha = pulseAlpha * 0.25f), style = Stroke(width = 1f))
 }
 
 @Composable

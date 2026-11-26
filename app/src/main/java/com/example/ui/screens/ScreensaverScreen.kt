@@ -166,6 +166,7 @@ fun ScreensaverRoute(
   val clockDisplay by viewModel.clockDisplay.collectAsStateWithLifecycle()
   val citySearchState by viewModel.citySearchState.collectAsStateWithLifecycle()
   val locationSwapBanner by viewModel.locationSwapBanner.collectAsStateWithLifecycle()
+  val appUpdateState by viewModel.appUpdateState.collectAsStateWithLifecycle()
 
   var dynamicDriftBounds by remember { mutableStateOf<Pair<Float, Float>?>(null) }
 
@@ -516,6 +517,10 @@ fun ScreensaverRoute(
         onSelectDriftMotionMode = viewModel::setDriftMotionMode,
         onSelectTextColor = viewModel::setTextColorOption,
         onRefreshWeather = viewModel::refreshWeather,
+        appUpdateState = appUpdateState,
+        onCheckForAppUpdate = viewModel::checkForAppUpdate,
+        onDownloadAndInstallUpdate = viewModel::downloadUpdateApk,
+        onConsumeAutoInstallLaunch = viewModel::consumeAutoInstallLaunch,
       )
     }
   }
@@ -543,8 +548,8 @@ private fun LoadingWeatherStage(plasma: PlasmaShieldState) {
       modifier =
         Modifier.fillMaxWidth()
           .graphicsLayer {
-            translationX = plasma.primaryOffsetX.toPx()
-            translationY = plasma.primaryOffsetY.toPx()
+            translationX = plasma.primaryOffsetXDpFloat * density
+            translationY = plasma.primaryOffsetYDpFloat * density
           },
     ) {
       // Matches the cold-boot launch graphic (Sun, Cloud, 3 Raindrops) so cold boot transitions seamlessly
@@ -648,8 +653,8 @@ private fun ErrorWeatherStage(
       verticalArrangement = Arrangement.spacedBy(14.dp),
       modifier =
         Modifier.graphicsLayer {
-          translationX = plasma.primaryOffsetX.toPx()
-          translationY = plasma.primaryOffsetY.toPx()
+          translationX = plasma.primaryOffsetXDpFloat * density
+          translationY = plasma.primaryOffsetYDpFloat * density
         },
     ) {
       Text(
@@ -1178,8 +1183,8 @@ private fun ScreensaverWeatherCanvas(
       scale = contentScale,
       modifier =
         Modifier.graphicsLayer {
-          translationX = plasma.primaryOffsetX.toPx()
-          translationY = plasma.primaryOffsetY.toPx()
+          translationX = plasma.primaryOffsetXDpFloat * this.density
+          translationY = plasma.primaryOffsetYDpFloat * this.density
         }.onSizeChanged { renderedSizePx = it },
     ) {
       if (isHeroOnly) {
@@ -1655,7 +1660,8 @@ private fun HeroWeatherClusterContent(
           size = Dp.Unspecified,
           modifier =
             Modifier.weight(1f)
-              .aspectRatio(1f, matchHeightConstraintsFirst = true),
+              .aspectRatio(1f, matchHeightConstraintsFirst = true)
+              .graphicsLayer {},
         )
         AutoShrinkSingleLineText(
           text = snapshot.currentCondition.label,
@@ -2124,6 +2130,7 @@ private fun DailyForecastCard(
           condition = day.condition,
           plasmaAccent = plasma.primaryAccent,
           size = glyphSize,
+          animated = false,
         )
         Text(
           text = day.condition.shortLabel,

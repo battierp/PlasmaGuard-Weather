@@ -619,6 +619,7 @@ private fun CubeSlotCard(
               condition = forecastSlot.condition,
               plasmaAccent = plasma.primaryAccent,
               size = glyphSize,
+              animated = false,
             )
           }
         }

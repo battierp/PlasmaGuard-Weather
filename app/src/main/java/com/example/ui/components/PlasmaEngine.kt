@@ -3,6 +3,7 @@ package com.example.ui.components
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.FloatState
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
@@ -15,7 +16,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameMillis
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.unit.Dp
@@ -46,18 +47,24 @@ data class PlasmaColors(
 @Stable
 class PlasmaShieldState(
   initialColors: PlasmaColors,
-  private val offsetXState: State<Dp>,
-  private val offsetYState: State<Dp>,
-  private val pulseState: State<Float>,
+  private val offsetXDpFloatState: FloatState,
+  private val offsetYDpFloatState: FloatState,
+  private val pulseState: FloatState,
 ) {
   var colors by mutableStateOf(initialColors)
     internal set
 
+  val primaryOffsetXDpFloat: Float
+    get() = offsetXDpFloatState.floatValue
+
+  val primaryOffsetYDpFloat: Float
+    get() = offsetYDpFloatState.floatValue
+
   val primaryOffsetX: Dp
-    get() = offsetXState.value
+    get() = offsetXDpFloatState.floatValue.dp
 
   val primaryOffsetY: Dp
-    get() = offsetYState.value
+    get() = offsetYDpFloatState.floatValue.dp
 
   val primaryTextColor: Color
     get() = colors.primaryTextColor
@@ -179,8 +186,8 @@ fun rememberPlasmaShieldState(
 ): PlasmaShieldState {
   var rainbowBucketMs by remember { mutableLongStateOf(0L) }
   var bounceColorIndex by remember { mutableIntStateOf(0) }
-  val offsetXDpState = remember { mutableStateOf(0.dp) }
-  val offsetYDpState = remember { mutableStateOf(0.dp) }
+  val offsetXDpFloatState = remember { mutableFloatStateOf(0f) }
+  val offsetYDpFloatState = remember { mutableFloatStateOf(0f) }
   val pulseFractionState = remember { mutableFloatStateOf(0.5f) }
 
   val currentSpeedMultiplier by rememberUpdatedState(driftIntensity.speedMultiplier)
@@ -190,8 +197,8 @@ fun rememberPlasmaShieldState(
   val currentMaxYDp by rememberUpdatedState(maxTravelYDp)
 
   LaunchedEffect(Unit) {
-    val startFrame = withFrameMillis { it }
-    var lastFrame = startFrame
+    val startFrameNanos = withFrameNanos { it }
+    var lastFrameNanos = startFrameNanos
     var perimeterProgress = 0.0
     var bounceX = 0.0
     var bounceY = 0.0
@@ -200,10 +207,10 @@ fun rememberPlasmaShieldState(
     var lastEdgeIdx = 0
 
     while (true) {
-      withFrameMillis { frameTime ->
-        val deltaSec = ((frameTime - lastFrame).coerceIn(0L, 250L)) / 1000.0
-        lastFrame = frameTime
-        val elapsedMs = (frameTime - startFrame).coerceAtLeast(0L)
+      withFrameNanos { frameTimeNanos ->
+        val deltaSec = ((frameTimeNanos - lastFrameNanos).coerceIn(0L, 100_000_000L)) / 1_000_000_000.0
+        lastFrameNanos = frameTimeNanos
+        val elapsedMs = ((frameTimeNanos - startFrameNanos) / 1_000_000L).coerceAtLeast(0L)
 
         if (currentTextColorOption == TextColorOption.RAINBOW) {
           val nextBucket = (elapsedMs / RAINBOW_COLOR_STEP_MS) * RAINBOW_COLOR_STEP_MS
@@ -256,8 +263,8 @@ fun rememberPlasmaShieldState(
             bounceColorIndex = (bounceColorIndex + 1) % RainbowBounceSpectrum.size
           }
           lastEdgeIdx = computeClockwiseEdgeIndex(perimeterProgress, maxX, maxY)
-          offsetXDpState.value = bounceX.toFloat().dp
-          offsetYDpState.value = bounceY.toFloat().dp
+          offsetXDpFloatState.floatValue = bounceX.toFloat()
+          offsetYDpFloatState.floatValue = bounceY.toFloat()
         } else {
           val totalPerimeter = (4.0 * maxX + 4.0 * maxY).coerceAtLeast(1.0)
           val perimeterSpeedDpPerSec =
@@ -273,8 +280,8 @@ fun rememberPlasmaShieldState(
             lastEdgeIdx = nextEdgeIdx
             bounceColorIndex = (bounceColorIndex + 1) % RainbowBounceSpectrum.size
           }
-          offsetXDpState.value = edgeX.toFloat().dp
-          offsetYDpState.value = edgeY.toFloat().dp
+          offsetXDpFloatState.floatValue = edgeX.toFloat()
+          offsetYDpFloatState.floatValue = edgeY.toFloat()
         }
 
         val tSec = elapsedMs / 1000.0
@@ -345,8 +352,8 @@ fun rememberPlasmaShieldState(
   val shieldState = remember {
     PlasmaShieldState(
       initialColors = colors,
-      offsetXState = offsetXDpState,
-      offsetYState = offsetYDpState,
+      offsetXDpFloatState = offsetXDpFloatState,
+      offsetYDpFloatState = offsetYDpFloatState,
       pulseState = pulseFractionState,
     )
   }

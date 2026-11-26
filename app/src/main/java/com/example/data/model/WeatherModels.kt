@@ -1,5 +1,6 @@
 package com.example.data.model
 
+import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 import java.util.Locale
 import kotlin.math.abs
@@ -217,4 +218,47 @@ fun formatSunTimeLabel(hour24: Int?, minute: Int?, use24Hour: Boolean): String {
 fun normalizeCityAutocompleteQuery(raw: String): String? {
   val trimmed = raw.trim()
   return if (trimmed.length >= 2) trimmed else null
+}
+
+@JsonClass(generateAdapter = true)
+data class GitHubAssetDto(
+  val name: String = "",
+  @Json(name = "browser_download_url") val browserDownloadUrl: String = "",
+)
+
+@JsonClass(generateAdapter = true)
+data class GitHubReleaseDto(
+  @Json(name = "tag_name") val tagName: String = "",
+  val name: String? = null,
+  @Json(name = "html_url") val htmlUrl: String = "",
+  val draft: Boolean = false,
+  val prerelease: Boolean = false,
+  val assets: List<GitHubAssetDto> = emptyList(),
+)
+
+fun normalizeVersionTag(raw: String): String =
+  raw.trim().removePrefix("v").removePrefix("V").substringBefore("-").trim()
+
+fun isRemoteVersionNewer(currentVersion: String, remoteTag: String): Boolean {
+  val currentParts = parseNumericVersionParts(normalizeVersionTag(currentVersion)) ?: return false
+  val remoteParts = parseNumericVersionParts(normalizeVersionTag(remoteTag)) ?: return false
+  val maxLen = maxOf(currentParts.size, remoteParts.size)
+  for (i in 0 until maxLen) {
+    val curr = currentParts.getOrElse(i) { 0 }
+    val rem = remoteParts.getOrElse(i) { 0 }
+    if (rem != curr) return rem > curr
+  }
+  return false
+}
+
+private fun parseNumericVersionParts(version: String): List<Int>? {
+  if (version.isBlank()) return null
+  val segments = version.split(".")
+  if (segments.isEmpty()) return null
+  val numbers = ArrayList<Int>(segments.size)
+  for (segment in segments) {
+    val parsed = segment.toIntOrNull() ?: return null
+    numbers.add(parsed)
+  }
+  return numbers
 }

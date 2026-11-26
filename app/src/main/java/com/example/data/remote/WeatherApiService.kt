@@ -2,6 +2,7 @@ package com.example.data.remote
 
 import com.example.data.model.GeoJsResponseDto
 import com.example.data.model.GeocodingResponseDto
+import com.example.data.model.GitHubReleaseDto
 import com.example.data.model.NwsAlertsResponseDto
 import com.example.data.model.OpenMeteoAirQualityResponse
 import com.example.data.model.OpenMeteoForecastResponse
@@ -12,6 +13,7 @@ import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
 import retrofit2.http.GET
 import retrofit2.http.Headers
+import retrofit2.http.Path
 import retrofit2.http.Query
 
 interface OpenMeteoForecastApi {
@@ -70,6 +72,18 @@ interface NwsAlertApi {
   suspend fun getActiveAlerts(@Query("point") point: String): NwsAlertsResponseDto
 }
 
+interface GitHubReleasesApi {
+  @Headers(
+    "Accept: application/vnd.github+json",
+    "User-Agent: PlasmaSky-AndroidTV",
+  )
+  @GET("repos/{owner}/{repo}/releases/latest")
+  suspend fun getLatestRelease(
+    @Path("owner") owner: String,
+    @Path("repo") repo: String,
+  ): GitHubReleaseDto
+}
+
 object NetworkModule {
   val moshi: Moshi by lazy { Moshi.Builder().build() }
 
@@ -77,6 +91,15 @@ object NetworkModule {
     OkHttpClient.Builder()
       .connectTimeout(12, TimeUnit.SECONDS)
       .readTimeout(15, TimeUnit.SECONDS)
+      .build()
+  }
+
+  val downloadHttpClient: OkHttpClient by lazy {
+    okHttpClient.newBuilder()
+      .connectTimeout(20, TimeUnit.SECONDS)
+      .readTimeout(120, TimeUnit.SECONDS)
+      .followRedirects(true)
+      .followSslRedirects(true)
       .build()
   }
 
@@ -123,5 +146,14 @@ object NetworkModule {
       .addConverterFactory(MoshiConverterFactory.create(moshi))
       .build()
       .create(NwsAlertApi::class.java)
+  }
+
+  val gitHubReleasesApi: GitHubReleasesApi by lazy {
+    Retrofit.Builder()
+      .baseUrl("https://api.github.com/")
+      .client(okHttpClient)
+      .addConverterFactory(MoshiConverterFactory.create(moshi))
+      .build()
+      .create(GitHubReleasesApi::class.java)
   }
 }

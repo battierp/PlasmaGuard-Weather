@@ -12,7 +12,9 @@ import com.example.data.model.WindSpeedUnit
 import com.example.data.model.aqiCategoryLabel
 import com.example.data.model.degreesToCompass
 import com.example.data.model.formatSunTimeLabel
+import com.example.data.model.isRemoteVersionNewer
 import com.example.data.model.normalizeCityAutocompleteQuery
+import com.example.data.model.normalizeVersionTag
 import com.example.data.model.precipCategoryLabel
 import com.example.data.repository.deriveMeteorologicalAdvisories
 import com.example.ui.components.HourlyCubeFace
@@ -231,5 +233,34 @@ class ExampleUnitTest {
     assertEquals(null, normalizeCityAutocompleteQuery(" a "))
     assertEquals("se", normalizeCityAutocompleteQuery(" se "))
     assertEquals("Seattle", normalizeCityAutocompleteQuery("  Seattle  "))
+  }
+
+  @Test
+  fun `version comparison handles sequential 1_xx release tags accurately`() {
+    assertEquals("1.01", normalizeVersionTag("v1.01"))
+    assertEquals("1.02", normalizeVersionTag("V1.02-debug"))
+
+    assertTrue(isRemoteVersionNewer("1.01", "v1.02"))
+    assertTrue(isRemoteVersionNewer("1.09", "v1.10"))
+    assertTrue(isRemoteVersionNewer("1.0", "v1.01"))
+
+    assertFalse(isRemoteVersionNewer("1.01", "v1.01"))
+    assertFalse(isRemoteVersionNewer("1.05", "v1.04"))
+    assertFalse(isRemoteVersionNewer("1.01", "latest"))
+  }
+
+  @Test
+  fun `apk header validation accepts zip magic bytes and rejects invalid payloads`() {
+    val validApk = java.io.File.createTempFile("valid_test", ".apk")
+    val invalidHtml = java.io.File.createTempFile("invalid_test", ".apk")
+    try {
+      validApk.writeBytes(byteArrayOf(0x50, 0x4B, 0x03, 0x04))
+      invalidHtml.writeText("<html>not an apk</html>")
+      assertTrue(com.example.data.update.AppUpdateManager.hasZipApkHeader(validApk))
+      assertFalse(com.example.data.update.AppUpdateManager.hasZipApkHeader(invalidHtml))
+    } finally {
+      validApk.delete()
+      invalidHtml.delete()
+    }
   }
 }
