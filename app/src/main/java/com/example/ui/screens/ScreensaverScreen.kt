@@ -6,7 +6,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
@@ -73,9 +72,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
@@ -1502,7 +1503,7 @@ private fun SevereWeatherAlertBanner(
         }
       }
 
-      Text(
+      SmoothMarqueeTicker(
         text = tickerText,
         style =
           MaterialTheme.typography.titleMedium.copy(
@@ -1510,14 +1511,129 @@ private fun SevereWeatherAlertBanner(
             lineHeight = if (isCompact) 19.sp else 24.sp,
           ),
         color = plasma.primaryTextColor,
-        maxLines = 1,
-        softWrap = false,
+        modifier = Modifier.weight(1f),
+      )
+    }
+  }
+}
+
+@Composable
+private fun SmoothMarqueeTicker(
+  text: String,
+  style: TextStyle,
+  color: Color,
+  modifier: Modifier = Modifier,
+  velocityDpPerSec: Dp = 54.dp,
+  gapDp: Dp = 56.dp,
+) {
+  val density = LocalDensity.current
+  val speedPxPerSec = with(density) { velocityDpPerSec.toPx() }
+  val gapPx = with(density) { gapDp.roundToPx() }
+
+  var viewportWidthPx by remember { mutableIntStateOf(0) }
+  var textWidthPx by remember { mutableIntStateOf(0) }
+  val scrollOffsetPx = remember { mutableFloatStateOf(0f) }
+
+  val shouldScroll = viewportWidthPx > 0 && textWidthPx > viewportWidthPx
+  val cyclePx = (textWidthPx + gapPx).toFloat().coerceAtLeast(1f)
+
+  LaunchedEffect(text, shouldScroll, cyclePx, speedPxPerSec) {
+    scrollOffsetPx.floatValue = 0f
+    if (!shouldScroll || speedPxPerSec <= 0f) return@LaunchedEffect
+
+    var lastFrameNanos = withFrameNanos { it }
+    while (true) {
+      withFrameNanos { frameNanos ->
+        val deltaSec = ((frameNanos - lastFrameNanos).coerceIn(0L, 100_000_000L)) / 1_000_000_000.0
+        lastFrameNanos = frameNanos
+        val next = (scrollOffsetPx.floatValue + (speedPxPerSec * deltaSec).toFloat()) % cyclePx
+        scrollOffsetPx.floatValue = if (next < 0f) next + cyclePx else next
+      }
+    }
+  }
+
+  Box(
+    modifier = modifier.clipToBounds(),
+  ) {
+    Layout(
+      content = {
+        Text(
+          text = text,
+          style = style,
+          color = color,
+          maxLines = 1,
+          softWrap = false,
+        )
+        Text(
+          text = text,
+          style = style,
+          color = color,
+          maxLines = 1,
+          softWrap = false,
+        )
+      },
+      modifier = Modifier.fillMaxWidth(),
+    ) { measurables, constraints ->
+      val maxW = constraints.maxWidth
+      val unbounded = constraints.copy(minWidth = 0, maxWidth = Constraints.Infinity)
+      val primary = measurables[0].measure(unbounded)
+      val secondary = measurables[1].measure(unbounded)
+
+      val vpW = if (constraints.hasBoundedWidth) maxW else primary.width
+      if (viewportWidthPx != vpW) viewportWidthPx = vpW
+      if (textWidthPx != primary.width) textWidthPx = primary.width
+
+      val height = primary.height.coerceIn(constraints.minHeight, constraints.maxHeight)
+      val scrollingNow = vpW > 0 && primary.width > vpW
+      val totalCycle = (primary.width + gapPx).toFloat().coerceAtLeast(1f)
+
+      layout(vpW, height) {
+        if (!scrollingNow) {
+          primary.placeRelative(0, 0)
+        } else {
+          primary.placeWithLayer(0, 0) {
+            translationX = -scrollOffsetPx.floatValue
+          }
+          secondary.placeWithLayer(0, 0) {
+            translationX = totalCycle - scrollOffsetPx.floatValue
+          }
+        }
+      }
+    }
+
+    if (shouldScroll) {
+      Spacer(
         modifier =
-          Modifier.weight(1f)
-            .basicMarquee(
-              iterations = Int.MAX_VALUE,
-              velocity = 54.dp,
-            ),
+          Modifier.matchParentSize()
+            .drawWithCache {
+              val fadePx = 14.dp.toPx().coerceAtMost(size.width * 0.12f)
+              val leftBrush =
+                Brush.horizontalGradient(
+                  colors = listOf(Color.Black, Color.Transparent),
+                  startX = 0f,
+                  endX = fadePx,
+                )
+              val rightBrush =
+                Brush.horizontalGradient(
+                  colors = listOf(Color.Transparent, Color.Black),
+                  startX = size.width - fadePx,
+                  endX = size.width,
+                )
+              onDrawBehind {
+                if (fadePx > 0f) {
+                  drawRect(
+                    brush = leftBrush,
+                    topLeft = Offset.Zero,
+                    size = Size(fadePx, size.height),
+                  )
+                  drawRect(
+                    brush = rightBrush,
+                    topLeft = Offset(size.width - fadePx, 0f),
+                    size = Size(fadePx, size.height),
+                  )
+                }
+              }
+            }
       )
     }
   }
