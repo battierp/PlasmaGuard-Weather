@@ -1337,17 +1337,22 @@ private fun ScreensaverWeatherCanvas(
               show7Day && showBottomBar -> {
                 Column(
                   modifier = Modifier.weight(1f).fillMaxWidth(),
-                  verticalArrangement = Arrangement.SpaceBetween,
+                  verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                  HeroWeatherCluster(
-                    snapshot = snapshot,
-                    clockDisplay = clockDisplay,
-                    use24Hour = settings.use24HourClock,
-                    plasma = plasma,
-                    isCompact = true,
-                    scaleMode = HeroScaleMode.STANDARD,
-                    modifier = Modifier.fillMaxWidth(),
-                  )
+                  Box(
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    contentAlignment = Alignment.Center,
+                  ) {
+                    HeroWeatherCluster(
+                      snapshot = snapshot,
+                      clockDisplay = clockDisplay,
+                      use24Hour = settings.use24HourClock,
+                      plasma = plasma,
+                      isCompact = true,
+                      scaleMode = HeroScaleMode.STANDARD,
+                      modifier = Modifier.fillMaxWidth(),
+                    )
+                  }
 
                   MultiDayForecastPanel(
                     days = snapshot.dailyForecasts,
@@ -1657,16 +1662,63 @@ private fun HeroWeatherCluster(
       HeroScaleMode.WIDE_CENTERED -> 1f
       HeroScaleMode.FULL_MAX -> if (isCompact) 1.10f else 1.24f
     }
-  HeroWeatherClusterContent(
-    snapshot = snapshot,
-    clockDisplay = clockDisplay,
-    use24Hour = use24Hour,
-    plasma = plasma,
-    isCompact = isCompact,
-    scaleFactor = factor,
-    tightWrap = tightWrap,
+  Layout(
+    content = {
+      HeroWeatherClusterContent(
+        snapshot = snapshot,
+        clockDisplay = clockDisplay,
+        use24Hour = use24Hour,
+        plasma = plasma,
+        isCompact = isCompact,
+        scaleFactor = factor,
+        tightWrap = tightWrap,
+      )
+    },
     modifier = modifier,
-  )
+  ) { measurables, constraints ->
+    val measureConstraints =
+      constraints.copy(
+        minWidth = 0,
+        minHeight = 0,
+        maxHeight = Constraints.Infinity,
+      )
+    val placeable = measurables[0].measure(measureConstraints)
+    val rawW = placeable.width.coerceAtLeast(1)
+    val rawH = placeable.height.coerceAtLeast(1)
+
+    val fitWidthScale =
+      if (constraints.hasBoundedWidth && rawW > constraints.maxWidth) {
+        constraints.maxWidth.toFloat() / rawW.toFloat()
+      } else {
+        1f
+      }
+    val fitHeightScale =
+      if (constraints.hasBoundedHeight && rawH > constraints.maxHeight) {
+        constraints.maxHeight.toFloat() / rawH.toFloat()
+      } else {
+        1f
+      }
+    val fitScale = minOf(fitWidthScale, fitHeightScale).coerceIn(0.40f, 1f)
+
+    val maxOutW = if (constraints.hasBoundedWidth) constraints.maxWidth else Int.MAX_VALUE
+    val maxOutH = if (constraints.hasBoundedHeight) constraints.maxHeight else Int.MAX_VALUE
+    val outW = (rawW * fitScale).roundToInt().coerceIn(constraints.minWidth, maxOutW)
+    val outH = (rawH * fitScale).roundToInt().coerceIn(constraints.minHeight, maxOutH)
+
+    layout(outW, outH) {
+      val drawW = rawW * fitScale
+      val drawH = rawH * fitScale
+      val dx = (outW - drawW) / 2f
+      val dy = (outH - drawH) / 2f
+      placeable.placeWithLayer(0, 0) {
+        transformOrigin = TransformOrigin(0f, 0f)
+        translationX = dx
+        translationY = dy
+        scaleX = fitScale
+        scaleY = fitScale
+      }
+    }
+  }
 }
 
 @Composable
@@ -1868,7 +1920,12 @@ private fun HeroWeatherClusterContent(
       val detailsBaseStyle =
         MaterialTheme.typography.bodyLarge.copy(
           fontSize = detailsSp,
-          lineHeight = (detailsSp.value + 2f).sp,
+          lineHeight = detailsSp,
+          lineHeightStyle =
+            LineHeightStyle(
+              alignment = LineHeightStyle.Alignment.Center,
+              trim = LineHeightStyle.Trim.Both,
+            ),
         )
 
       val dailyRangeString = "Low ${snapshot.todayLowTemp}° · High ${snapshot.todayHighTemp}°"
