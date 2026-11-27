@@ -1143,6 +1143,19 @@ private fun ScreensaverWeatherCanvas(
     val isShortLandscape = isTvWide && maxHeight < 470.dp
 
     var renderedSizePx by remember { mutableStateOf(IntSize.Zero) }
+    var bannerSlotHeightPx by remember { mutableIntStateOf(0) }
+    val bannerHeightDp =
+      if (bannerSlotHeightPx > 0) with(density) { bannerSlotHeightPx.toDp().value } else 0f
+
+    val effectiveTopReserveDp =
+      computeHeroAlertReserveTopDp(
+        isHeroOnly = isHeroOnly,
+        hasActiveAlertsBanner = showAlertsBanner,
+        measuredBannerHeightDp = bannerHeightDp,
+        isCompact = !isTvWide || isShortLandscape,
+        stageHeightDp = stageHeightDp,
+      )
+    val heroPlayfieldHeightDp = (stageHeightDp - effectiveTopReserveDp).coerceAtLeast(1f)
 
     val freeX =
       if (renderedSizePx.width > 0) {
@@ -1153,13 +1166,14 @@ private fun ScreensaverWeatherCanvas(
       }
     val freeY =
       if (renderedSizePx.height > 0) {
-        ((stageHeightDp - with(density) { renderedSizePx.height.toDp().value }) / 2f - 4f)
+        ((heroPlayfieldHeightDp - with(density) { renderedSizePx.height.toDp().value }) / 2f - 4f)
           .coerceAtLeast(1f)
       } else {
         settings.driftIntensity.maxOffsetDp * 0.65f
       }
 
     // Both Clockwise (90% scale) and DVD Bounce (80% scale) sweep across all free TV edges
+    // (or stay strictly below the alert banner in hero-only mode when an alert is active).
     val targetMaxX = freeX
     val targetMaxY = freeY
 
@@ -1167,27 +1181,44 @@ private fun ScreensaverWeatherCanvas(
       onUpdateDriftBounds(targetMaxX, targetMaxY)
     }
 
-    // When both 7-Day and 24-Hour are OFF, show any active alert banner pinned at top so Hero keeps minimal bounds
+    // When both 7-Day and 24-Hour are OFF, show any active alert banner pinned at top with zero static borders
     if (showAlertsBanner && isHeroOnly) {
-      SevereWeatherAlertBanner(
-        alerts = snapshot.alerts,
-        plasma = plasma,
-        isCompact = !isTvWide || isShortLandscape,
+      Box(
         modifier =
           Modifier.align(Alignment.TopCenter)
             .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 4.dp),
-      )
+            .onSizeChanged { size ->
+              if (bannerSlotHeightPx != size.height) {
+                bannerSlotHeightPx = size.height
+              }
+            },
+      ) {
+        SevereWeatherAlertBanner(
+          alerts = snapshot.alerts,
+          plasma = plasma,
+          isCompact = !isTvWide || isShortLandscape,
+          borderlessScrollAll = true,
+          modifier =
+            Modifier.fillMaxWidth()
+              .padding(horizontal = 8.dp, vertical = 2.dp),
+        )
+      }
     }
 
-    ScaledContentBox(
-      scale = contentScale,
+    Box(
       modifier =
-        Modifier.graphicsLayer {
-          translationX = plasma.primaryOffsetXDpFloat * this.density
-          translationY = plasma.primaryOffsetYDpFloat * this.density
-        }.onSizeChanged { renderedSizePx = it },
+        Modifier.fillMaxSize()
+          .padding(top = effectiveTopReserveDp.dp),
+      contentAlignment = Alignment.Center,
     ) {
+      ScaledContentBox(
+        scale = contentScale,
+        modifier =
+          Modifier.graphicsLayer {
+            translationX = plasma.primaryOffsetXDpFloat * this.density
+            translationY = plasma.primaryOffsetYDpFloat * this.density
+          }.onSizeChanged { renderedSizePx = it },
+      ) {
       if (isHeroOnly) {
         // Both 7-Day & 24-Hour OFF -> tight-wrap Hero with minimal borders for maximum TV-edge travel
         HeroWeatherCluster(
@@ -1442,7 +1473,28 @@ private fun ScreensaverWeatherCanvas(
         }
       }
     }
+    }
   }
+}
+
+internal fun computeHeroAlertReserveTopDp(
+  isHeroOnly: Boolean,
+  hasActiveAlertsBanner: Boolean,
+  measuredBannerHeightDp: Float,
+  isCompact: Boolean,
+  stageHeightDp: Float,
+): Float {
+  if (!isHeroOnly || !hasActiveAlertsBanner) return 0f
+  val baseBannerDp =
+    if (measuredBannerHeightDp > 0f) {
+      measuredBannerHeightDp
+    } else if (isCompact) {
+      40f
+    } else {
+      48f
+    }
+  val maxAllowed = (stageHeightDp * 0.35f).coerceAtLeast(0f)
+  return (baseBannerDp + 6f).coerceAtMost(maxAllowed)
 }
 
 @Composable
@@ -1450,6 +1502,7 @@ private fun SevereWeatherAlertBanner(
   alerts: List<WeatherAlert>,
   plasma: PlasmaShieldState,
   isCompact: Boolean,
+  borderlessScrollAll: Boolean = false,
   modifier: Modifier = Modifier,
 ) {
   val hasSevere =
@@ -1464,59 +1517,110 @@ private fun SevereWeatherAlertBanner(
         "${alert.event.uppercase(Locale.getDefault())}: ${alert.headline}"
       }
     }
+  val tickerStyle =
+    MaterialTheme.typography.titleMedium.copy(
+      fontSize = if (isCompact) 16.sp else 21.sp,
+      lineHeight = if (isCompact) 19.sp else 24.sp,
+    )
 
   Surface(
     modifier = modifier.testTag("severe_weather_alert_banner"),
     shape = RoundedCornerShape(14.dp),
-    color = Color.Black.copy(alpha = 0.84f),
-    border = BorderStroke(1.2.dp, alertTint.copy(alpha = 0.72f)),
+    color = if (borderlessScrollAll) Color.Transparent else Color.Black.copy(alpha = 0.84f),
+    border = if (borderlessScrollAll) null else BorderStroke(1.2.dp, alertTint.copy(alpha = 0.72f)),
   ) {
-    Row(
-      modifier =
-        Modifier.fillMaxWidth()
-          .padding(horizontal = 14.dp, vertical = if (isCompact) 7.dp else 9.dp),
-      verticalAlignment = Alignment.CenterVertically,
-      horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-      Surface(
-        shape = RoundedCornerShape(8.dp),
-        color = alertTint.copy(alpha = 0.18f),
-        border = BorderStroke(1.dp, alertTint.copy(alpha = 0.55f)),
+    if (borderlessScrollAll) {
+      SmoothMarqueeTicker(
+        alwaysScroll = true,
+        modifier =
+          Modifier.fillMaxWidth()
+            .padding(horizontal = 6.dp, vertical = if (isCompact) 5.dp else 7.dp),
       ) {
         Row(
-          modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
           verticalAlignment = Alignment.CenterVertically,
-          horizontalArrangement = Arrangement.spacedBy(5.dp),
+          horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-          Icon(
-            imageVector = Icons.Rounded.WarningAmber,
-            contentDescription = "Weather Alert",
-            tint = alertTint,
-            modifier = Modifier.size(if (isCompact) 16.dp else 20.dp),
+          AlertSeverityPill(
+            hasSevere = hasSevere,
+            alertTint = alertTint,
+            isCompact = isCompact,
+            showBorder = false,
           )
           Text(
-            text = if (hasSevere) "ALERT" else "ADVISORY",
-            style =
-              MaterialTheme.typography.labelLarge.copy(
-                fontSize = if (isCompact) 13.sp else 16.sp,
-                lineHeight = if (isCompact) 15.sp else 18.sp,
-                fontWeight = FontWeight.Bold,
-              ),
-            color = alertTint,
+            text = tickerText,
+            style = tickerStyle,
+            color = plasma.primaryTextColor,
             maxLines = 1,
+            softWrap = false,
           )
         }
       }
+    } else {
+      Row(
+        modifier =
+          Modifier.fillMaxWidth()
+            .padding(horizontal = 14.dp, vertical = if (isCompact) 7.dp else 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+      ) {
+        AlertSeverityPill(
+          hasSevere = hasSevere,
+          alertTint = alertTint,
+          isCompact = isCompact,
+          showBorder = true,
+        )
 
-      SmoothMarqueeTicker(
-        text = tickerText,
+        SmoothMarqueeTicker(
+          alwaysScroll = false,
+          modifier = Modifier.weight(1f),
+        ) {
+          Text(
+            text = tickerText,
+            style = tickerStyle,
+            color = plasma.primaryTextColor,
+            maxLines = 1,
+            softWrap = false,
+          )
+        }
+      }
+    }
+  }
+}
+
+@Composable
+private fun AlertSeverityPill(
+  hasSevere: Boolean,
+  alertTint: Color,
+  isCompact: Boolean,
+  showBorder: Boolean,
+) {
+  Surface(
+    shape = RoundedCornerShape(8.dp),
+    color = alertTint.copy(alpha = 0.18f),
+    border = if (showBorder) BorderStroke(1.dp, alertTint.copy(alpha = 0.55f)) else null,
+  ) {
+    Row(
+      modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+      verticalAlignment = Alignment.CenterVertically,
+      horizontalArrangement = Arrangement.spacedBy(5.dp),
+    ) {
+      Icon(
+        imageVector = Icons.Rounded.WarningAmber,
+        contentDescription = "Weather Alert",
+        tint = alertTint,
+        modifier = Modifier.size(if (isCompact) 16.dp else 20.dp),
+      )
+      Text(
+        text = if (hasSevere) "ALERT" else "ADVISORY",
         style =
-          MaterialTheme.typography.titleMedium.copy(
-            fontSize = if (isCompact) 16.sp else 21.sp,
-            lineHeight = if (isCompact) 19.sp else 24.sp,
+          MaterialTheme.typography.labelLarge.copy(
+            fontSize = if (isCompact) 13.sp else 16.sp,
+            lineHeight = if (isCompact) 15.sp else 18.sp,
+            fontWeight = FontWeight.Bold,
           ),
-        color = plasma.primaryTextColor,
-        modifier = Modifier.weight(1f),
+        color = alertTint,
+        maxLines = 1,
+        softWrap = false,
       )
     }
   }
@@ -1524,25 +1628,30 @@ private fun SevereWeatherAlertBanner(
 
 @Composable
 private fun SmoothMarqueeTicker(
-  text: String,
-  style: TextStyle,
-  color: Color,
   modifier: Modifier = Modifier,
+  alwaysScroll: Boolean = false,
   velocityDpPerSec: Dp = 54.dp,
   gapDp: Dp = 56.dp,
+  itemContent: @Composable () -> Unit,
 ) {
   val density = LocalDensity.current
   val speedPxPerSec = with(density) { velocityDpPerSec.toPx() }
   val gapPx = with(density) { gapDp.roundToPx() }
 
   var viewportWidthPx by remember { mutableIntStateOf(0) }
-  var textWidthPx by remember { mutableIntStateOf(0) }
+  var contentWidthPx by remember { mutableIntStateOf(0) }
   val scrollOffsetPx = remember { mutableFloatStateOf(0f) }
 
-  val shouldScroll = viewportWidthPx > 0 && textWidthPx > viewportWidthPx
-  val cyclePx = (textWidthPx + gapPx).toFloat().coerceAtLeast(1f)
+  val shouldScroll = viewportWidthPx > 0 && (alwaysScroll || contentWidthPx > viewportWidthPx)
+  val effectiveGapPx =
+    if (alwaysScroll && viewportWidthPx > 0 && contentWidthPx < viewportWidthPx) {
+      viewportWidthPx - contentWidthPx + gapPx
+    } else {
+      gapPx
+    }
+  val cyclePx = (contentWidthPx + effectiveGapPx).toFloat().coerceAtLeast(1f)
 
-  LaunchedEffect(text, shouldScroll, cyclePx, speedPxPerSec) {
+  LaunchedEffect(shouldScroll, cyclePx, speedPxPerSec) {
     scrollOffsetPx.floatValue = 0f
     if (!shouldScroll || speedPxPerSec <= 0f) return@LaunchedEffect
 
@@ -1562,20 +1671,8 @@ private fun SmoothMarqueeTicker(
   ) {
     Layout(
       content = {
-        Text(
-          text = text,
-          style = style,
-          color = color,
-          maxLines = 1,
-          softWrap = false,
-        )
-        Text(
-          text = text,
-          style = style,
-          color = color,
-          maxLines = 1,
-          softWrap = false,
-        )
+        itemContent()
+        itemContent()
       },
       modifier = Modifier.fillMaxWidth(),
     ) { measurables, constraints ->
@@ -1586,11 +1683,13 @@ private fun SmoothMarqueeTicker(
 
       val vpW = if (constraints.hasBoundedWidth) maxW else primary.width
       if (viewportWidthPx != vpW) viewportWidthPx = vpW
-      if (textWidthPx != primary.width) textWidthPx = primary.width
+      if (contentWidthPx != primary.width) contentWidthPx = primary.width
 
       val height = primary.height.coerceIn(constraints.minHeight, constraints.maxHeight)
-      val scrollingNow = vpW > 0 && primary.width > vpW
-      val totalCycle = (primary.width + gapPx).toFloat().coerceAtLeast(1f)
+      val scrollingNow = vpW > 0 && (alwaysScroll || primary.width > vpW)
+      val layoutGapPx =
+        if (alwaysScroll && primary.width < vpW) vpW - primary.width + gapPx else gapPx
+      val totalCycle = (primary.width + layoutGapPx).toFloat().coerceAtLeast(1f)
 
       layout(vpW, height) {
         if (!scrollingNow) {

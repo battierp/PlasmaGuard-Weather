@@ -322,4 +322,41 @@ class ExampleUnitTest {
       )
     assertTrue(cancelled.contains("canceled", ignoreCase = true))
   }
+
+  @Test
+  fun `hero only reserves top alert clearance only when alert banner is active`() {
+    assertEquals(
+      0f,
+      com.example.ui.screens.computeHeroAlertReserveTopDp(
+        isHeroOnly = true,
+        hasActiveAlertsBanner = false,
+        measuredBannerHeightDp = 44f,
+        isCompact = false,
+        stageHeightDp = 540f,
+      ),
+      0.001f,
+    )
+
+    assertEquals(
+      0f,
+      com.example.ui.screens.computeHeroAlertReserveTopDp(
+        isHeroOnly = false,
+        hasActiveAlertsBanner = true,
+        measuredBannerHeightDp = 44f,
+        isCompact = false,
+        stageHeightDp = 540f,
+      ),
+      0.001f,
+    )
+
+    val reserved =
+      com.example.ui.screens.computeHeroAlertReserveTopDp(
+        isHeroOnly = true,
+        hasActiveAlertsBanner = true,
+        measuredBannerHeightDp = 44f,
+        isCompact = false,
+        stageHeightDp = 540f,
+      )
+    assertEquals(50f, reserved, 0.001f)
+  }
 }
