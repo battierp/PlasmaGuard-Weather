@@ -68,6 +68,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -93,6 +94,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.BuildConfig
 import com.example.data.local.MAX_SAVED_LOCATIONS
 import com.example.data.local.UserSettings
@@ -105,6 +107,7 @@ import com.example.data.model.TextColorOption
 import com.example.data.model.WeatherAlert
 import com.example.data.model.WindSpeedUnit
 import com.example.data.model.normalizeVersionTag
+import com.example.data.update.AppUpdateInstallStatus
 import com.example.data.update.AppUpdateManager
 import com.example.ui.AppUpdateUiState
 import com.example.ui.CitySearchUiState
@@ -122,6 +125,7 @@ import com.example.ui.theme.SoftAmethyst
 import com.example.ui.theme.SoftFrostText
 import com.example.ui.theme.SubtleOutline
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -883,6 +887,8 @@ fun SettingsOverlay(
         // App Updates (very last setting at the bottom)
         val installedVersion = normalizeVersionTag(BuildConfig.VERSION_NAME).ifBlank { "1.01" }
         var installActionError by remember(appUpdateState) { mutableStateOf<String?>(null) }
+        val installStatus by AppUpdateManager.installStatus.collectAsStateWithLifecycle()
+        val updateCoroutineScope = rememberCoroutineScope()
         var keepFocusInUpdates by remember { mutableStateOf(false) }
         val checkUpdateFocusRequester = remember { FocusRequester() }
         val downloadUpdateFocusRequester = remember { FocusRequester() }
@@ -906,11 +912,16 @@ fun SettingsOverlay(
           if (
             appUpdateState is AppUpdateUiState.ReadyToInstall &&
               appUpdateState.autoLaunchInstall &&
-              canInstallUnknownApps
+              canInstallUnknownApps &&
+              installStatus !is AppUpdateInstallStatus.Installing
           ) {
             onConsumeAutoInstallLaunch()
-            AppUpdateManager.launchApkInstall(context, appUpdateState.apkFile).onFailure { err ->
-              installActionError = err.localizedMessage ?: "Unable to launch package installer."
+            AppUpdateManager.clearInstallStatus()
+            updateCoroutineScope.launch {
+              AppUpdateManager.installApkInApp(context, appUpdateState.apkFile).onFailure { err ->
+                installActionError =
+                  err.localizedMessage ?: "Unable to start Android package installer."
+              }
             }
           }
         }
@@ -995,6 +1006,10 @@ fun SettingsOverlay(
                 }
                 is AppUpdateUiState.ReadyToInstall ->
                   when {
+                    installStatus is AppUpdateInstallStatus.Installing ->
+                      "Installing v${appUpdateState.latestVersion}..."
+                    installStatus is AppUpdateInstallStatus.Failed ->
+                      (installStatus as AppUpdateInstallStatus.Failed).message
                     appUpdateState.incompatibilityReason != null ->
                       appUpdateState.incompatibilityReason
                     canInstallUnknownApps ->
@@ -1008,14 +1023,16 @@ fun SettingsOverlay(
                   "In-app updates are enabled on APKs built by GitHub Actions."
               }
 
+            val receiverError = (installStatus as? AppUpdateInstallStatus.Failed)?.message
             Text(
               text = installActionError ?: statusLine,
               style = MaterialTheme.typography.bodyMedium,
               color =
                 when {
-                  installActionError != null -> BrightCoral
+                  installActionError != null || receiverError != null -> BrightCoral
                   appUpdateState is AppUpdateUiState.UpdateAvailable -> BrightGold
-                  appUpdateState is AppUpdateUiState.Downloading -> accentColor
+                  appUpdateState is AppUpdateUiState.Downloading ||
+                    installStatus is AppUpdateInstallStatus.Installing -> accentColor
                   appUpdateState is AppUpdateUiState.ReadyToInstall ->
                     when {
                       appUpdateState.incompatibilityReason != null -> BrightCoral
@@ -1201,10 +1218,16 @@ fun SettingsOverlay(
                   )
                   Button(
                     onClick = {
-                      installActionError = null
-                      AppUpdateManager.launchApkInstall(context, appUpdateState.apkFile).onFailure { err ->
-                        installActionError =
-                          err.localizedMessage ?: "Unable to start Android package installer."
+                      if (installStatus !is AppUpdateInstallStatus.Installing) {
+                        installActionError = null
+                        AppUpdateManager.clearInstallStatus()
+                        updateCoroutineScope.launch {
+                          AppUpdateManager.installApkInApp(context, appUpdateState.apkFile)
+                            .onFailure { err ->
+                              installActionError =
+                                err.localizedMessage ?: "Unable to start Android package installer."
+                            }
+                        }
                       }
                     },
                     modifier =

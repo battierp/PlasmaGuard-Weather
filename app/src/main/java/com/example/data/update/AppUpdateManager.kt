@@ -1,8 +1,10 @@
 package com.example.data.update
 
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageInfo
+import android.content.pm.PackageInstaller
 import android.content.pm.PackageManager
 import android.content.pm.Signature
 import android.net.Uri
@@ -13,11 +15,15 @@ import androidx.core.content.pm.PackageInfoCompat
 import com.example.BuildConfig
 import com.example.data.remote.NetworkModule
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
 import java.security.MessageDigest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import okhttp3.Request
 
@@ -27,9 +33,55 @@ sealed interface ApkCompatibilityResult {
   data class Incompatible(val reason: String) : ApkCompatibilityResult
 }
 
+sealed interface AppUpdateInstallStatus {
+  data object Idle : AppUpdateInstallStatus
+
+  data object Installing : AppUpdateInstallStatus
+
+  data object Succeeded : AppUpdateInstallStatus
+
+  data class Failed(val message: String) : AppUpdateInstallStatus
+}
+
+internal fun formatInstallFailureMessage(status: Int, statusMessage: String): String {
+  val normalized = statusMessage.uppercase()
+  return when {
+    normalized.contains("UPDATE_INCOMPATIBLE") ||
+      normalized.contains("INCONSISTENT_CERTIFICATES") ||
+      normalized.contains("SIGNATURES") ->
+      "Install blocked: signing certificate does not match the installed version. Uninstall PlasmaSky once, then install the new release cleanly."
+    normalized.contains("VERSION_DOWNGRADE") ->
+      "Install blocked: the downloaded build has an older version code than the installed version."
+    status == PackageInstaller.STATUS_FAILURE_ABORTED ->
+      "Installation was canceled."
+    status == PackageInstaller.STATUS_FAILURE_CONFLICT ->
+      "Install conflict with the currently installed app. Uninstall the older build once and install cleanly."
+    status == PackageInstaller.STATUS_FAILURE_INCOMPATIBLE ->
+      "This APK is incompatible with your device or installed signature."
+    status == PackageInstaller.STATUS_FAILURE_STORAGE ->
+      "Not enough free storage space on the device to install the update."
+    status == PackageInstaller.STATUS_FAILURE_INVALID ->
+      "The downloaded APK package appears invalid or corrupted."
+    statusMessage.isNotBlank() -> statusMessage
+    else -> "Android package installer failed (code $status)."
+  }
+}
+
 object AppUpdateManager {
   private const val UPDATES_DIR_NAME = "updates"
   private const val APK_MIME_TYPE = "application/vnd.android.package-archive"
+  private const val INSTALL_CALLBACK_REQUEST_CODE = 4207
+
+  private val _installStatus = MutableStateFlow<AppUpdateInstallStatus>(AppUpdateInstallStatus.Idle)
+  val installStatus: StateFlow<AppUpdateInstallStatus> = _installStatus.asStateFlow()
+
+  internal fun reportInstallStatus(status: AppUpdateInstallStatus) {
+    _installStatus.value = status
+  }
+
+  fun clearInstallStatus() {
+    _installStatus.value = AppUpdateInstallStatus.Idle
+  }
 
   fun canRequestPackageInstalls(context: Context): Boolean =
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -107,7 +159,84 @@ object AppUpdateManager {
     return ApkCompatibilityResult.Compatible
   }
 
-  fun launchApkInstall(context: Context, apkFile: File): Result<Unit> =
+  suspend fun installApkInApp(context: Context, apkFile: File): Result<Unit> =
+    withContext(Dispatchers.IO) {
+      runCatching {
+        require(apkFile.exists() && apkFile.length() > 0L) {
+          "Downloaded update file is missing."
+        }
+        _installStatus.value = AppUpdateInstallStatus.Installing
+
+        val sessionInstallResult = runCatching { installViaPackageInstallerSession(context, apkFile) }
+        if (sessionInstallResult.isFailure) {
+          // Fallback to direct FileProvider package-archive intent (never a browser URL)
+          withContext(Dispatchers.Main) {
+            launchApkInstallViaIntent(context, apkFile).getOrThrow()
+          }
+          _installStatus.value = AppUpdateInstallStatus.Idle
+        }
+      }.onFailure { err ->
+        _installStatus.value =
+          AppUpdateInstallStatus.Failed(
+            err.localizedMessage ?: "Unable to start Android package installer."
+          )
+      }
+    }
+
+  private fun installViaPackageInstallerSession(context: Context, apkFile: File) {
+    val packageInstaller = context.packageManager.packageInstaller
+    val params =
+      PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
+        setAppPackageName(context.packageName)
+        setSize(apkFile.length())
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+          setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+          setPackageSource(PackageInstaller.PACKAGE_SOURCE_DOWNLOADED_FILE)
+        }
+      }
+
+    var sessionId = -1
+    var committed = false
+    try {
+      sessionId = packageInstaller.createSession(params)
+      packageInstaller.openSession(sessionId).use { session ->
+        session.openWrite("PlasmaSky-update.apk", 0L, apkFile.length()).use { out ->
+          FileInputStream(apkFile).use { input ->
+            input.copyTo(out)
+          }
+          session.fsync(out)
+        }
+
+        val callbackIntent =
+          Intent(context, AppUpdateInstallReceiver::class.java).apply {
+            setPackage(context.packageName)
+          }
+        val pendingFlags =
+          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
+          } else {
+            PendingIntent.FLAG_UPDATE_CURRENT
+          }
+        val pendingIntent =
+          PendingIntent.getBroadcast(
+            context,
+            INSTALL_CALLBACK_REQUEST_CODE,
+            callbackIntent,
+            pendingFlags,
+          )
+        session.commit(pendingIntent.intentSender)
+        committed = true
+      }
+    } finally {
+      if (!committed && sessionId != -1) {
+        runCatching { packageInstaller.abandonSession(sessionId) }
+      }
+    }
+  }
+
+  fun launchApkInstallViaIntent(context: Context, apkFile: File): Result<Unit> =
     runCatching {
       require(apkFile.exists() && apkFile.length() > 0L) {
         "Downloaded update file is missing."

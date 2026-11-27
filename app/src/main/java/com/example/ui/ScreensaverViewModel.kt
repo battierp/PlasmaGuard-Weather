@@ -66,7 +66,6 @@ sealed interface AppUpdateUiState {
     val currentVersion: String,
     val latestVersion: String,
     val downloadUrl: String,
-    val releasePageUrl: String,
   ) : AppUpdateUiState
   data class Downloading(
     val latestVersion: String,
@@ -408,6 +407,7 @@ class ScreensaverViewModel(application: Application) : AndroidViewModel(applicat
       return
     }
 
+    AppUpdateManager.clearInstallStatus()
     updateCheckJob?.cancel()
     updateCheckJob =
       viewModelScope.launch {
@@ -421,7 +421,6 @@ class ScreensaverViewModel(application: Application) : AndroidViewModel(applicat
             release.assets.firstOrNull { it.name.endsWith(".apk", ignoreCase = true) }?.browserDownloadUrl
               ?.trim()
               .orEmpty()
-          val pageUrl = release.htmlUrl.ifBlank { apkUrl }
 
           if (isRemoteVersionNewer(currentVersion = currentVersion, remoteTag = release.tagName)) {
             _appUpdateState.value =
@@ -429,7 +428,6 @@ class ScreensaverViewModel(application: Application) : AndroidViewModel(applicat
                 currentVersion = currentVersion,
                 latestVersion = latestVersion,
                 downloadUrl = apkUrl,
-                releasePageUrl = pageUrl,
               )
           } else {
             _appUpdateState.value = AppUpdateUiState.UpToDate(currentVersion = currentVersion)
@@ -451,6 +449,7 @@ class ScreensaverViewModel(application: Application) : AndroidViewModel(applicat
     }
     if (_appUpdateState.value is AppUpdateUiState.Downloading) return
 
+    AppUpdateManager.clearInstallStatus()
     updateCheckJob?.cancel()
     updateCheckJob =
       viewModelScope.launch {
