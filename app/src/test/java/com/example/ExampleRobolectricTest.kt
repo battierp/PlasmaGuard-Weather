@@ -358,5 +358,129 @@ class ExampleRobolectricTest {
 
     assertEquals(bannerTopBefore, bannerTopAfter, 0.5f)
     assertTrue("Expected weather panel to drift horizontally", kotlin.math.abs(tempXAfter - tempXBefore) > 5f)
+
+    // Even when drifted upward to maximum negative Y, panels must stay strictly below the pinned alert banner
+    val bannerBottom = bannerNode.fetchSemanticsNode().boundsInRoot.bottom
+    offsetY.floatValue = -40f
+    composeTestRule.mainClock.advanceTimeByFrame()
+    composeTestRule.waitForIdle()
+    val multiDayTop =
+      composeTestRule.onNode(androidx.compose.ui.test.hasTestTag("multiday_forecast_section"))
+        .fetchSemanticsNode()
+        .boundsInRoot
+        .top
+    assertTrue(
+      "Expected drifting panels (top=$multiDayTop) to remain below banner (bottom=$bannerBottom)",
+      multiDayTop >= bannerBottom - 1f,
+    )
+  }
+
+  @Test
+  fun `weather alert banner stays pinned at top in 7-day-only and bottom-bar-only modes while badge scrolls`() {
+    val offsetX = mutableFloatStateOf(0f)
+    val offsetY = mutableFloatStateOf(0f)
+    val plasma =
+      PlasmaShieldState(
+        initialColors =
+          PlasmaColors(
+            primaryTextColor = SoftFrostText,
+            secondaryTextColor = SoftFrostText.copy(alpha = 0.8f),
+            primaryAccent = AuroraCyan,
+            secondaryAccent = AuroraCyan.copy(alpha = 0.8f),
+          ),
+        offsetXDpFloatState = offsetX,
+        offsetYDpFloatState = offsetY,
+        pulseState = mutableFloatStateOf(0.5f),
+      )
+
+    val snapshot =
+      WeatherSnapshot(
+        locationName = "Seattle, WA",
+        latitude = 47.6062,
+        longitude = -122.3321,
+        currentTemp = 54,
+        feelsLikeTemp = 51,
+        todayHighTemp = 58,
+        todayLowTemp = 44,
+        currentCondition = WeatherCondition.RAINY,
+        tempUnit = TemperatureUnit.FAHRENHEIT,
+        windSpeed = 12,
+        windGusts = 28,
+        windUnitLabel = "mph",
+        humidityPercent = 78,
+        hourlySlots =
+          (0 until 12).map { idx ->
+            HourlySlot(idx, 0, 50 + idx, WeatherCondition.RAINY, 60, isDay = true, isNow = idx == 0)
+          },
+        next12Hours =
+          (0 until 12).map { idx ->
+            HourlyMetricSlot(idx, 0, 60, 12, 28, 180, 28)
+          },
+        dailyForecasts =
+          listOf("Tue", "Wed", "Thu", "Fri", "Sat", "Sun", "Mon").map { day ->
+            DailyForecast(day, WeatherCondition.RAINY, 58, 44, 60)
+          },
+        alerts =
+          listOf(
+            WeatherAlert(
+              event = "Wind Advisory",
+              severity = "Moderate",
+              headline = "Gusts up to 45 mph expected",
+            )
+          ),
+        sunriseHour24 = 7,
+        sunriseMinute = 10,
+        sunsetHour24 = 16,
+        sunsetMinute = 35,
+        fetchedAtEpochMs = 1_000_000L,
+      )
+
+    val settingsState =
+      androidx.compose.runtime.mutableStateOf(
+        UserSettings(
+          show7DayForecast = true,
+          showBottomBarTemp24h = false,
+          showBottomBarPrecipitation = false,
+          showBottomBarWind = false,
+          showBottomBarAirQuality = false,
+          showSevereWeatherAlerts = true,
+        )
+      )
+
+    composeTestRule.mainClock.autoAdvance = false
+    composeTestRule.setContent {
+      PlasmaSkyTheme {
+        Box(modifier = Modifier.size(960.dp, 540.dp)) {
+          ScreensaverWeatherCanvas(
+            snapshot = snapshot,
+            settings = settingsState.value,
+            clockDisplay = ClockDisplay("5:12 PM", "Thu, Nov 26"),
+            plasma = plasma,
+            forceTvWide = true,
+            onUpdateDriftBounds = { _, _ -> },
+          )
+        }
+      }
+    }
+
+    composeTestRule.mainClock.advanceTimeByFrame()
+    composeTestRule.waitForIdle()
+    val bannerNode =
+      composeTestRule.onNode(androidx.compose.ui.test.hasTestTag("severe_weather_alert_banner"))
+    val bannerTop7DayOnly = bannerNode.fetchSemanticsNode().boundsInRoot.top
+
+    // Switch to Bottom-bar-only mode and drift panels
+    settingsState.value =
+      settingsState.value.copy(
+        show7DayForecast = false,
+        showBottomBarTemp24h = true,
+      )
+    offsetX.floatValue = 18f
+    offsetY.floatValue = 14f
+    composeTestRule.mainClock.advanceTimeByFrame()
+    composeTestRule.waitForIdle()
+
+    val bannerTopBottomBarOnly = bannerNode.fetchSemanticsNode().boundsInRoot.top
+    assertEquals(bannerTop7DayOnly, bannerTopBottomBarOnly, 0.5f)
   }
 }

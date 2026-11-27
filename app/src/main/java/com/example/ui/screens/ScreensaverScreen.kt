@@ -1207,7 +1207,8 @@ internal fun ScreensaverWeatherCanvas(
     Box(
       modifier =
         Modifier.fillMaxSize()
-          .padding(top = effectiveTopReserveDp.dp),
+          .padding(top = effectiveTopReserveDp.dp)
+          .clipToBounds(),
       contentAlignment = Alignment.Center,
     ) {
       ScaledContentBox(
