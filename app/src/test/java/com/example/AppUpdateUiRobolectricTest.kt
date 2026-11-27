@@ -342,4 +342,84 @@ class AppUpdateUiRobolectricTest {
     receiver.onReceive(app, android.content.Intent(android.content.Intent.ACTION_MY_PACKAGE_REPLACED))
     org.junit.Assert.assertNull(org.robolectric.Shadows.shadowOf(app).nextStartedActivity)
   }
+
+  @Test
+  fun `install button displays Installing and becomes a no-op while install is in progress`() {
+    val context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
+    org.robolectric.Shadows.shadowOf(context.packageManager).setCanRequestPackageInstalls(true)
+    val tempApk = File.createTempFile("installing_state_test", ".apk")
+    try {
+      tempApk.writeBytes(byteArrayOf(0x50, 0x4B, 0x03, 0x04))
+      com.example.data.update.AppUpdateManager.reportInstallStatus(
+        com.example.data.update.AppUpdateInstallStatus.Installing
+      )
+
+      composeTestRule.setContent {
+        PlasmaSkyTheme {
+          SettingsOverlay(
+            settings = UserSettings(),
+            citySearchState = CitySearchUiState(),
+            activeAlerts = emptyList(),
+            accentColor = AuroraCyan,
+            onDismiss = {},
+            onQueryChange = {},
+            onSearchSubmit = {},
+            onSelectCity = {},
+            onSelectSavedLocation = {},
+            onRemoveSavedLocation = {},
+            onToggleAutoRotateLocations = {},
+            onSelectUnit = {},
+            onSelectWindUnit = {},
+            onToggle24Hour = {},
+            onToggle7DayForecast = {},
+            onToggleBottomBarTemp24h = {},
+            onToggleBottomBarWind = {},
+            onToggleBottomBarAirQuality = {},
+            onToggleBottomBarPrecipitation = {},
+            onToggleSevereAlerts = {},
+            onSelectDriftIntensity = {},
+            onSelectDriftMotionMode = {},
+            onSelectTextColor = {},
+            onRefreshWeather = {},
+            appUpdateState =
+              AppUpdateUiState.ReadyToInstall(
+                latestVersion = "1.14",
+                apkFile = tempApk,
+                autoLaunchInstall = false,
+                incompatibilityReason = null,
+              ),
+            onCheckForAppUpdate = {},
+            onDownloadAndInstallUpdate = { _, _ -> },
+            onConsumeAutoInstallLaunch = {},
+          )
+        }
+      }
+
+      composeTestRule.waitForIdle()
+      val installButton = composeTestRule.onNodeWithTag("install_downloaded_apk_button")
+      installButton.performScrollTo()
+      installButton.assertIsDisplayed()
+      composeTestRule.onNodeWithText("Installing...").assertIsDisplayed()
+      composeTestRule.onNodeWithText("Install v1.14").assertDoesNotExist()
+
+      // Clicking while Installing is a safe no-op and keeps Installing status intact
+      installButton.performClick()
+      composeTestRule.waitForIdle()
+      org.junit.Assert.assertEquals(
+        com.example.data.update.AppUpdateInstallStatus.Installing,
+        com.example.data.update.AppUpdateManager.installStatus.value,
+      )
+      composeTestRule.onNodeWithText("Installing...").assertIsDisplayed()
+
+      // If install is canceled/fails, button reverts to Install v1.14 so the user can retry
+      com.example.data.update.AppUpdateManager.reportInstallStatus(
+        com.example.data.update.AppUpdateInstallStatus.Failed("Installation was canceled.")
+      )
+      composeTestRule.waitForIdle()
+      composeTestRule.onNodeWithText("Install v1.14").assertIsDisplayed()
+    } finally {
+      com.example.data.update.AppUpdateManager.clearInstallStatus()
+      tempApk.delete()
+    }
+  }
 }

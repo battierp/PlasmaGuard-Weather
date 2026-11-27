@@ -1122,6 +1122,7 @@ fun SettingsOverlay(
               horizontalArrangement = Arrangement.spacedBy(10.dp),
               verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
+              val isInstalling = installStatus is AppUpdateInstallStatus.Installing
               val isBusy =
                 appUpdateState is AppUpdateUiState.Checking ||
                   appUpdateState is AppUpdateUiState.Downloading
@@ -1132,7 +1133,7 @@ fun SettingsOverlay(
               )
               OutlinedButton(
                 onClick = {
-                  if (!isBusy) {
+                  if (!isBusy && !isInstalling) {
                     keepFocusInUpdates = true
                     installActionError = null
                     onCheckForAppUpdate()
@@ -1317,12 +1318,12 @@ fun SettingsOverlay(
               if (appUpdateState is AppUpdateUiState.ReadyToInstall && canInstallUnknownApps) {
                   var installFocused by remember { mutableStateOf(false) }
                   val installScale by animateFloatAsState(
-                    targetValue = if (installFocused) 1.05f else 1f,
+                    targetValue = if (!isInstalling && installFocused) 1.05f else 1f,
                     label = "install_apk_scale",
                   )
                   Button(
                     onClick = {
-                      if (installStatus !is AppUpdateInstallStatus.Installing) {
+                      if (!isInstalling) {
                         installActionError = null
                         AppUpdateManager.clearInstallStatus()
                         updateCoroutineScope.launch {
@@ -1345,25 +1346,38 @@ fun SettingsOverlay(
                         .onFocusChanged { installFocused = it.isFocused || it.hasFocus }
                         .testTag("install_downloaded_apk_button"),
                     shape = RoundedCornerShape(14.dp),
-                    border = if (installFocused) BorderStroke(3.dp, BrightGold) else null,
+                    border =
+                      when {
+                        installFocused -> BorderStroke(3.dp, BrightGold)
+                        isInstalling -> BorderStroke(1.dp, SubtleOutline)
+                        else -> null
+                      },
                     colors =
                       ButtonDefaults.buttonColors(
-                        containerColor = SeafoamTeal,
-                        contentColor = ObsidianBlack,
+                        containerColor = if (isInstalling) ElevatedSurface else SeafoamTeal,
+                        contentColor = if (isInstalling) SoftFrostText.copy(alpha = 0.85f) else ObsidianBlack,
                       ),
                   ) {
-                    Icon(
-                      imageVector = Icons.Rounded.SystemUpdate,
-                      contentDescription = null,
-                      modifier = Modifier.size(18.dp),
-                    )
+                    if (isInstalling) {
+                      CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                        color = accentColor,
+                      )
+                    } else {
+                      Icon(
+                        imageVector = Icons.Rounded.SystemUpdate,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                      )
+                    }
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                       text =
-                        if (appUpdateState.incompatibilityReason != null) {
-                          "Try Install Anyway"
-                        } else {
-                          "Install v${appUpdateState.latestVersion}"
+                        when {
+                          isInstalling -> "Installing..."
+                          appUpdateState.incompatibilityReason != null -> "Try Install Anyway"
+                          else -> "Install v${appUpdateState.latestVersion}"
                         },
                       fontWeight = FontWeight.SemiBold,
                     )
