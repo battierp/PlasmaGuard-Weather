@@ -12,6 +12,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: build-apk-release
+  cancel-in-progress: false
+
 jobs:
   build-apk:
     name: Build & Publish APK
@@ -56,23 +60,51 @@ jobs:
           if [ -n "$SIGNING_KEYSTORE_BASE64" ]; then
             printf '%s' "$SIGNING_KEYSTORE_BASE64" | tr -d '\r\n[:space:]' | base64 -d > debug.keystore
             echo "mode=persistent_secret" >> "$GITHUB_OUTPUT"
-          elif [ -f debug.keystore.base64 ] && [ -s debug.keystore.base64 ]; then
-            tr -d '\r\n[:space:]' < debug.keystore.base64 | base64 -d > debug.keystore
-            echo "mode=persistent_repo" >> "$GITHUB_OUTPUT"
-          elif [ ! -f debug.keystore ]; then
-            echo "::warning::No debug.keystore.base64 or SIGNING_KEYSTORE_BASE64 secret found. Generating an ephemeral signing key — APKs signed with different keys cannot update in-place ('App not installed')."
-            keytool -genkeypair -v \
-              -keystore debug.keystore \
-              -storepass android \
-              -alias androiddebugkey \
-              -keypass android \
-              -keyalg RSA \
-              -keysize 2048 \
-              -validity 10000 \
-              -dname "CN=Android Debug,O=Android,C=US"
-            echo "mode=ephemeral" >> "$GITHUB_OUTPUT"
+          elif git fetch --depth=1 origin ci-signing:refs/remotes/origin/ci-signing >/dev/null 2>&1 \
+            && git show origin/ci-signing:debug.keystore.base64 > ci_signing.base64.tmp 2>/dev/null \
+            && [ -s ci_signing.base64.tmp ]; then
+            tr -d '\r\n[:space:]' < ci_signing.base64.tmp | base64 -d > debug.keystore
+            rm -f ci_signing.base64.tmp
+            echo "mode=persistent_ci_branch" >> "$GITHUB_OUTPUT"
           else
-            echo "mode=existing_file" >> "$GITHUB_OUTPUT"
+            rm -f ci_signing.base64.tmp
+            if [ -f debug.keystore.base64 ] && [ -s debug.keystore.base64 ]; then
+              tr -d '\r\n[:space:]' < debug.keystore.base64 | base64 -d > debug.keystore
+              echo "mode=persistent_repo" >> "$GITHUB_OUTPUT"
+            elif [ ! -f debug.keystore ]; then
+              keytool -genkeypair -v \
+                -keystore debug.keystore \
+                -storepass android \
+                -alias androiddebugkey \
+                -keypass android \
+                -keyalg RSA \
+                -keysize 2048 \
+                -validity 10000 \
+                -dname "CN=Android Debug,O=Android,C=US"
+              echo "mode=persistent_ci_branch_init" >> "$GITHUB_OUTPUT"
+            else
+              echo "mode=existing_file" >> "$GITHUB_OUTPUT"
+            fi
+
+            TMP_GIT_DIR=$(mktemp -d)
+            git init "$TMP_GIT_DIR" >/dev/null
+            base64 -w 0 debug.keystore > "$TMP_GIT_DIR/debug.keystore.base64"
+            (
+              cd "$TMP_GIT_DIR"
+              git config user.name "github-actions[bot]"
+              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+              git checkout --orphan ci-signing >/dev/null 2>&1
+              git add debug.keystore.base64
+              git commit -m "chore: persist CI signing keystore" >/dev/null
+              git remote add origin "$(git -C "$GITHUB_WORKSPACE" remote get-url origin)"
+              AUTH_HEADER=$(git -C "$GITHUB_WORKSPACE" config --get http.https://github.com/.extraheader || true)
+              if [ -n "$AUTH_HEADER" ]; then
+                git -c "http.https://github.com/.extraheader=$AUTH_HEADER" push origin ci-signing:refs/heads/ci-signing || true
+              else
+                git push origin ci-signing:refs/heads/ci-signing || true
+              fi
+            )
+            rm -rf "$TMP_GIT_DIR"
           fi
 
           CERT_SHA256=$(keytool -list -v -keystore debug.keystore -storepass android -alias androiddebugkey \

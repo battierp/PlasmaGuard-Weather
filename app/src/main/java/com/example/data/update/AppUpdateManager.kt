@@ -164,8 +164,10 @@ object AppUpdateManager {
         archiveSignerDigests.isNotEmpty() &&
         installedSignerDigests.intersect(archiveSignerDigests).isEmpty()
     ) {
+      val installedShort = installedSignerDigests.first().take(8)
+      val archiveShort = archiveSignerDigests.first().take(8)
       return ApkCompatibilityResult.Incompatible(
-        "Cannot install directly over the current version because their signing certificates don't match (which causes Android's 'App not installed' error). Uninstall PlasmaSky once, then install this release from GitHub Releases so future in-app updates work seamlessly."
+        "Cannot install directly over the current version because their signing certificates don't match (installed=$installedShort…, update=$archiveShort…). Uninstall PlasmaSky once, then install this release from GitHub Releases so future in-app updates work seamlessly."
       )
     }
     return ApkCompatibilityResult.Compatible
@@ -338,33 +340,38 @@ object AppUpdateManager {
     }
   }
 
-  private fun getInstalledInfoWithSigners(pm: PackageManager, packageName: String): PackageInfo? =
-    runCatching {
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-        @Suppress("DEPRECATION")
-        pm.getPackageInfo(
-          packageName,
-          PackageManager.GET_SIGNING_CERTIFICATES or PackageManager.GET_SIGNATURES,
-        )
-      } else {
-        @Suppress("DEPRECATION")
-        pm.getPackageInfo(packageName, PackageManager.GET_SIGNATURES)
+  private fun getInstalledInfoWithSigners(pm: PackageManager, packageName: String): PackageInfo? {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+      val modern =
+        runCatching {
+          pm.getPackageInfo(packageName, PackageManager.GET_SIGNING_CERTIFICATES)
+        }.getOrNull()
+      if (modern != null && extractSignerSha256Digests(modern).isNotEmpty()) {
+        return modern
       }
+    }
+    return runCatching {
+      @Suppress("DEPRECATION")
+      pm.getPackageInfo(packageName, PackageManager.GET_SIGNATURES)
     }.getOrNull()
+  }
 
-  private fun getArchiveInfoWithSigners(pm: PackageManager, apkPath: String): PackageInfo? =
-    runCatching {
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-        @Suppress("DEPRECATION")
-        pm.getPackageArchiveInfo(
-          apkPath,
-          PackageManager.GET_SIGNING_CERTIFICATES or PackageManager.GET_SIGNATURES,
-        )
-      } else {
-        @Suppress("DEPRECATION")
-        pm.getPackageArchiveInfo(apkPath, PackageManager.GET_SIGNATURES)
+  private fun getArchiveInfoWithSigners(pm: PackageManager, apkPath: String): PackageInfo? {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+      val modern =
+        runCatching {
+          pm.getPackageArchiveInfo(apkPath, PackageManager.GET_SIGNING_CERTIFICATES)
+        }.getOrNull()
+      if (modern != null && extractSignerSha256Digests(modern).isNotEmpty()) {
+        return modern
       }
+    }
+    return runCatching {
+      @Suppress("DEPRECATION")
+      pm.getPackageArchiveInfo(apkPath, PackageManager.GET_SIGNATURES)
     }.getOrNull()
+      ?: runCatching { pm.getPackageArchiveInfo(apkPath, 0) }.getOrNull()
+  }
 
   private fun extractSignerSha256Digests(info: PackageInfo): Set<String> {
     val sigs = ArrayList<Signature>()
