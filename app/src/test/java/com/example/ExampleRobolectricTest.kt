@@ -31,6 +31,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.unit.dp
 import com.example.data.model.DailyForecast
 import com.example.data.model.HourlyMetricSlot
@@ -482,5 +484,80 @@ class ExampleRobolectricTest {
 
     val bannerTopBottomBarOnly = bannerNode.fetchSemanticsNode().boundsInRoot.top
     assertEquals(bannerTop7DayOnly, bannerTopBottomBarOnly, 0.5f)
+  }
+
+  @Test
+  fun `display text color dropdown and open menu share compact single-line width`() {
+    composeTestRule.setContent {
+      PlasmaSkyTheme {
+        Box(modifier = Modifier.size(960.dp, 540.dp)) {
+          com.example.ui.screens.SettingsOverlay(
+            settings = UserSettings(),
+            citySearchState = com.example.ui.CitySearchUiState(),
+            activeAlerts = emptyList(),
+            accentColor = com.example.ui.theme.AuroraCyan,
+            onDismiss = {},
+            onQueryChange = {},
+            onSearchSubmit = {},
+            onSelectCity = {},
+            onSelectSavedLocation = {},
+            onRemoveSavedLocation = {},
+            onToggleAutoRotateLocations = {},
+            onSelectUnit = {},
+            onSelectWindUnit = {},
+            onToggle24Hour = {},
+            onToggle7DayForecast = {},
+            onToggleBottomBarTemp24h = {},
+            onToggleBottomBarWind = {},
+            onToggleBottomBarAirQuality = {},
+            onToggleBottomBarPrecipitation = {},
+            onToggleSevereAlerts = {},
+            onSelectDriftIntensity = {},
+            onSelectDriftMotionMode = {},
+            onSelectTextColor = {},
+            onRefreshWeather = {},
+          )
+        }
+      }
+    }
+
+    composeTestRule.waitForIdle()
+    val dropdownNode =
+      composeTestRule.onNode(androidx.compose.ui.test.hasTestTag("text_color_dropdown"))
+    dropdownNode.performScrollTo()
+    val triggerBounds = dropdownNode.fetchSemanticsNode().boundsInRoot
+    val triggerWidthPx = triggerBounds.width
+    val density = composeTestRule.density.density
+    val triggerWidthDp = triggerWidthPx / density
+
+    // Must fit the longest option without stretching edge-to-edge across the 760dp sheet
+    assertTrue("Expected compact dropdown width < 550dp, got $triggerWidthDp", triggerWidthDp < 550f)
+    assertTrue("Expected non-zero dropdown width, got $triggerWidthDp", triggerWidthDp > 100f)
+
+    dropdownNode.performClick()
+    composeTestRule.waitForIdle()
+
+    val menuNode =
+      composeTestRule.onNode(androidx.compose.ui.test.hasTestTag("text_color_dropdown_menu"))
+    val menuWidthDp = menuNode.fetchSemanticsNode().boundsInRoot.width / density
+    assertEquals(triggerWidthDp, menuWidthDp, 1f)
+
+    val rainbowTimerOption =
+      composeTestRule.onNode(androidx.compose.ui.test.hasTestTag("text_color_option_rainbow"))
+    val rainbowBounceOption =
+      composeTestRule.onNode(androidx.compose.ui.test.hasTestTag("text_color_option_rainbow_bounce"))
+    listOf(rainbowTimerOption, rainbowBounceOption).forEach { node ->
+      val layouts = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
+      node.fetchSemanticsNode()
+        .config[androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult]
+        .action
+        ?.invoke(layouts)
+      assertEquals(1, layouts.size)
+      assertEquals(1, layouts.first().lineCount)
+      assertFalse(layouts.first().hasVisualOverflow)
+    }
+
+    // Touch check ensures option row renders cleanly
+    assertTrue(rainbowBounceOption.fetchSemanticsNode().boundsInRoot.height > 0f)
   }
 }

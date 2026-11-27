@@ -52,7 +52,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -84,9 +83,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.SubcomposeLayout
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -1604,6 +1606,14 @@ private fun TvSelectableChip(
   }
 }
 
+private fun textColorDisplayLabel(option: TextColorOption): String =
+  when (option) {
+    TextColorOption.WHITE -> "White (Default)"
+    TextColorOption.RAINBOW -> "Rainbow Timer (Smooth Blend)"
+    TextColorOption.RAINBOW_BOUNCE -> "Rainbow Bounce (Contrast Hit)"
+    else -> option.label
+  }
+
 @Composable
 private fun TextColorDropdown(
   selectedOption: TextColorOption,
@@ -1613,117 +1623,195 @@ private fun TextColorDropdown(
   var expanded by remember { mutableStateOf(false) }
   var focused by remember { mutableStateOf(false) }
   val dropdownScale by animateFloatAsState(targetValue = if (focused) 1.015f else 1f, label = "dropdown_scale")
+  val density = LocalDensity.current
 
-  Box(modifier = Modifier.fillMaxWidth()) {
-    Surface(
-      modifier =
-        Modifier.fillMaxWidth()
-          .scale(dropdownScale)
-          .minimumInteractiveComponentSize()
-          .clip(RoundedCornerShape(14.dp))
-          .onFocusChanged { focused = it.isFocused }
-          .clickable { expanded = true }
-          .testTag("text_color_dropdown"),
-      shape = RoundedCornerShape(14.dp),
-      color = if (focused) lerp(DeepCardSurface, BrightGold, 0.14f) else DeepCardSurface,
-      border =
-        BorderStroke(
-          width = if (focused || expanded) 3.dp else 1.dp,
-          color = if (focused || expanded) BrightGold else SubtleOutline,
-        ),
-    ) {
-      Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
-      ) {
+  SubcomposeLayout(modifier = Modifier.fillMaxWidth()) { constraints ->
+    val itemMeasureConstraints = constraints.copy(minWidth = 0, minHeight = 0)
+    val measuredWidths =
+      subcompose("measure_options") {
+        TextColorOption.entries.forEach { option ->
+          Row(
+            modifier =
+              Modifier.clearAndSetSemantics {}
+                .padding(horizontal = 6.dp, vertical = 2.dp)
+                .border(3.dp, Color.Transparent, RoundedCornerShape(10.dp))
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+          ) {
+            TextColorSwatch(option = option)
+            Spacer(modifier = Modifier.width(12.dp))
+            Text(
+              text = textColorDisplayLabel(option),
+              style = MaterialTheme.typography.bodyLarge,
+              fontWeight = FontWeight.SemiBold,
+              maxLines = 1,
+              softWrap = false,
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+            Icon(
+              imageVector = Icons.Rounded.Check,
+              contentDescription = null,
+              modifier = Modifier.size(20.dp),
+            )
+          }
+        }
         Row(
+          modifier =
+            Modifier.clearAndSetSemantics {}
+              .padding(horizontal = 16.dp, vertical = 14.dp),
           verticalAlignment = Alignment.CenterVertically,
-          horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
           TextColorSwatch(option = selectedOption)
+          Spacer(modifier = Modifier.width(12.dp))
           Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(
               text = "Display Text Color",
               style = MaterialTheme.typography.labelSmall,
-              color = SoftFrostText.copy(alpha = 0.78f),
+              maxLines = 1,
+              softWrap = false,
             )
             Text(
-              text =
-                when (selectedOption) {
-                  TextColorOption.WHITE -> "White (Default)"
-                  TextColorOption.RAINBOW -> "Rainbow Timer (Smooth Similar Blend)"
-                  TextColorOption.RAINBOW_BOUNCE -> "Rainbow Bounce (Contrasting Hit)"
-                  else -> selectedOption.label
-                },
+              text = textColorDisplayLabel(selectedOption),
               style = MaterialTheme.typography.bodyLarge,
-              color = SoftFrostText,
+              maxLines = 1,
+              softWrap = false,
             )
           }
+          Spacer(modifier = Modifier.width(8.dp))
+          Icon(
+            imageVector = Icons.Rounded.ArrowDropDown,
+            contentDescription = null,
+          )
         }
-        Icon(
-          imageVector = Icons.Rounded.ArrowDropDown,
-          contentDescription = "Choose display text color",
-          tint = if (focused || expanded) BrightGold else accentColor,
-        )
-      }
-    }
+      }.map { it.measure(itemMeasureConstraints).width }
 
-    DropdownMenu(
-      expanded = expanded,
-      onDismissRequest = { expanded = false },
-      modifier = Modifier.background(ElevatedSurface),
-    ) {
-      TextColorOption.entries.forEach { option ->
-        val isSelected = option == selectedOption
-        var itemFocused by remember { mutableStateOf(false) }
-        DropdownMenuItem(
-          leadingIcon = { TextColorSwatch(option = option) },
-          text = {
-            Text(
-              text =
-                when (option) {
-                  TextColorOption.RAINBOW -> "Rainbow Timer (Smooth Blend)"
-                  TextColorOption.RAINBOW_BOUNCE -> "Rainbow Bounce (Contrast Hit)"
-                  else -> option.label
-                },
-              style = MaterialTheme.typography.bodyLarge,
-              color = SoftFrostText,
-              fontWeight = if (isSelected || itemFocused) FontWeight.SemiBold else FontWeight.Normal,
-            )
-          },
-          trailingIcon =
-            if (isSelected) {
-              {
-                Icon(
-                  imageVector = Icons.Rounded.Check,
-                  contentDescription = "Selected",
-                  tint = accentColor,
-                )
+    val dropdownWidthPx =
+      (measuredWidths.maxOrNull() ?: constraints.maxWidth).coerceAtMost(constraints.maxWidth)
+    val dropdownWidth = with(density) { dropdownWidthPx.toDp() }
+
+    val contentPlaceables =
+      subcompose("content") {
+        Box(modifier = Modifier.width(dropdownWidth)) {
+          Surface(
+            modifier =
+              Modifier.width(dropdownWidth)
+                .scale(dropdownScale)
+                .minimumInteractiveComponentSize()
+                .clip(RoundedCornerShape(14.dp))
+                .onFocusChanged { focused = it.isFocused }
+                .clickable { expanded = true }
+                .testTag("text_color_dropdown"),
+            shape = RoundedCornerShape(14.dp),
+            color = if (focused) lerp(DeepCardSurface, BrightGold, 0.14f) else DeepCardSurface,
+            border =
+              BorderStroke(
+                width = if (focused || expanded) 3.dp else 1.dp,
+                color = if (focused || expanded) BrightGold else SubtleOutline,
+              ),
+          ) {
+            Row(
+              modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+              Row(
+                modifier = Modifier.weight(1f),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+              ) {
+                TextColorSwatch(option = selectedOption)
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                  Text(
+                    text = "Display Text Color",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = SoftFrostText.copy(alpha = 0.78f),
+                    maxLines = 1,
+                    softWrap = false,
+                  )
+                  Text(
+                    text = textColorDisplayLabel(selectedOption),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = SoftFrostText,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis,
+                  )
+                }
               }
-            } else {
-              null
-            },
-          modifier =
-            Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
-              .clip(RoundedCornerShape(10.dp))
-              .background(
-                if (itemFocused) lerp(ElevatedSurface, BrightGold, 0.20f) else Color.Transparent,
-                RoundedCornerShape(10.dp),
+              Spacer(modifier = Modifier.width(8.dp))
+              Icon(
+                imageVector = Icons.Rounded.ArrowDropDown,
+                contentDescription = "Choose display text color",
+                tint = if (focused || expanded) BrightGold else accentColor,
               )
-              .border(
-                width = if (itemFocused) 3.dp else 0.dp,
-                color = if (itemFocused) BrightGold else Color.Transparent,
-                shape = RoundedCornerShape(10.dp),
-              )
-              .onFocusChanged { itemFocused = it.isFocused || it.hasFocus }
-              .testTag("text_color_option_${option.name.lowercase()}"),
-          onClick = {
-            onSelectOption(option)
-            expanded = false
-          },
-        )
-      }
+            }
+          }
+
+          DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            modifier =
+              Modifier.width(dropdownWidth)
+                .background(ElevatedSurface)
+                .testTag("text_color_dropdown_menu"),
+          ) {
+            TextColorOption.entries.forEach { option ->
+              val isSelected = option == selectedOption
+              var itemFocused by remember { mutableStateOf(false) }
+              Row(
+                modifier =
+                  Modifier.fillMaxWidth()
+                    .minimumInteractiveComponentSize()
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(
+                      if (itemFocused) lerp(ElevatedSurface, BrightGold, 0.20f) else Color.Transparent,
+                      RoundedCornerShape(10.dp),
+                    )
+                    .border(
+                      width = if (itemFocused) 3.dp else 0.dp,
+                      color = if (itemFocused) BrightGold else Color.Transparent,
+                      shape = RoundedCornerShape(10.dp),
+                    )
+                    .onFocusChanged { itemFocused = it.isFocused || it.hasFocus }
+                    .clickable {
+                      onSelectOption(option)
+                      expanded = false
+                    }
+                    .padding(horizontal = 12.dp, vertical = 10.dp)
+                    .testTag("text_color_option_${option.name.lowercase()}"),
+                verticalAlignment = Alignment.CenterVertically,
+              ) {
+                TextColorSwatch(option = option)
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                  text = textColorDisplayLabel(option),
+                  style = MaterialTheme.typography.bodyLarge,
+                  color = SoftFrostText,
+                  fontWeight = if (isSelected || itemFocused) FontWeight.SemiBold else FontWeight.Normal,
+                  maxLines = 1,
+                  softWrap = false,
+                  overflow = TextOverflow.Ellipsis,
+                  modifier = Modifier.weight(1f),
+                )
+                if (isSelected) {
+                  Spacer(modifier = Modifier.width(10.dp))
+                  Icon(
+                    imageVector = Icons.Rounded.Check,
+                    contentDescription = "Selected",
+                    tint = accentColor,
+                    modifier = Modifier.size(20.dp),
+                  )
+                }
+              }
+            }
+          }
+        }
+      }.map { it.measure(itemMeasureConstraints) }
+
+    val totalHeight = contentPlaceables.maxOfOrNull { it.height } ?: 0
+    layout(dropdownWidthPx, totalHeight) {
+      contentPlaceables.forEach { it.placeRelative(0, 0) }
     }
   }
 }
