@@ -38,6 +38,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.TransformOrigin
@@ -183,6 +184,9 @@ fun RotatingHourlyCubePanel(
                 }
               )
               .graphicsLayer {
+                compositingStrategy =
+                  if (isCurrent || isNext) CompositingStrategy.Offscreen
+                  else CompositingStrategy.Auto
                 val h = size.height
                 if (!isAnimating || h <= 0f) {
                   transformOrigin = TransformOrigin.Center

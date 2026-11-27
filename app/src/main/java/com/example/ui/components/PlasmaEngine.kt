@@ -111,7 +111,36 @@ private val RainbowBounceSpectrum =
   )
 
 private const val RAINBOW_TIMER_MS_PER_COLOR = 12_000L
-private const val RAINBOW_COLOR_STEP_MS = 100L
+private const val RAINBOW_COLOR_STEP_MS = 200L
+
+internal class FrameDeltaSmoother {
+  private var smoothedDeltaNanos: Double = 0.0
+  private var consecutiveOutliers: Int = 0
+
+  fun recordDeltaSeconds(rawDeltaNanos: Long): Double {
+    val clamped = rawDeltaNanos.coerceIn(0L, 100_000_000L)
+    if (clamped <= 0L) return 0.0
+    val raw = clamped.toDouble()
+    if (smoothedDeltaNanos <= 0.0) {
+      smoothedDeltaNanos = raw
+      consecutiveOutliers = 0
+      return raw / 1_000_000_000.0
+    }
+    val lower = smoothedDeltaNanos * 0.60
+    val upper = smoothedDeltaNanos * 1.40
+    if (raw < lower || raw > upper) {
+      consecutiveOutliers++
+      if (consecutiveOutliers >= 2) {
+        smoothedDeltaNanos = raw
+        consecutiveOutliers = 0
+      }
+      return raw / 1_000_000_000.0
+    }
+    consecutiveOutliers = 0
+    smoothedDeltaNanos = smoothedDeltaNanos * 0.85 + raw * 0.15
+    return smoothedDeltaNanos / 1_000_000_000.0
+  }
+}
 
 internal fun motionModeContentScale(mode: DriftMotionMode): Float =
   when (mode) {
@@ -199,6 +228,7 @@ fun rememberPlasmaShieldState(
   LaunchedEffect(Unit) {
     val startFrameNanos = withFrameNanos { it }
     var lastFrameNanos = startFrameNanos
+    val deltaSmoother = FrameDeltaSmoother()
     var perimeterProgress = 0.0
     var bounceX = 0.0
     var bounceY = 0.0
@@ -208,7 +238,7 @@ fun rememberPlasmaShieldState(
 
     while (true) {
       withFrameNanos { frameTimeNanos ->
-        val deltaSec = ((frameTimeNanos - lastFrameNanos).coerceIn(0L, 100_000_000L)) / 1_000_000_000.0
+        val deltaSec = deltaSmoother.recordDeltaSeconds(frameTimeNanos - lastFrameNanos)
         lastFrameNanos = frameTimeNanos
         val elapsedMs = ((frameTimeNanos - startFrameNanos) / 1_000_000L).coerceAtLeast(0L)
 

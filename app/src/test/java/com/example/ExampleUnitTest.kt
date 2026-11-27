@@ -324,11 +324,10 @@ class ExampleUnitTest {
   }
 
   @Test
-  fun `hero only reserves top alert clearance only when alert banner is active`() {
+  fun `active weather alert reserves top banner clearance across all panel configurations`() {
     assertEquals(
       0f,
-      com.example.ui.screens.computeHeroAlertReserveTopDp(
-        isHeroOnly = true,
+      com.example.ui.screens.computeAlertBannerReserveTopDp(
         hasActiveAlertsBanner = false,
         measuredBannerHeightDp = 44f,
         isCompact = false,
@@ -337,26 +336,47 @@ class ExampleUnitTest {
       0.001f,
     )
 
-    assertEquals(
-      0f,
-      com.example.ui.screens.computeHeroAlertReserveTopDp(
-        isHeroOnly = false,
-        hasActiveAlertsBanner = true,
-        measuredBannerHeightDp = 44f,
-        isCompact = false,
-        stageHeightDp = 540f,
-      ),
-      0.001f,
-    )
-
-    val reserved =
-      com.example.ui.screens.computeHeroAlertReserveTopDp(
-        isHeroOnly = true,
+    val tvReserved =
+      com.example.ui.screens.computeAlertBannerReserveTopDp(
         hasActiveAlertsBanner = true,
         measuredBannerHeightDp = 44f,
         isCompact = false,
         stageHeightDp = 540f,
       )
-    assertEquals(50f, reserved, 0.001f)
+    assertEquals(50f, tvReserved, 0.001f)
+
+    val compactFallback =
+      com.example.ui.screens.computeAlertBannerReserveTopDp(
+        hasActiveAlertsBanner = true,
+        measuredBannerHeightDp = 0f,
+        isCompact = true,
+        stageHeightDp = 540f,
+      )
+    assertEquals(46f, compactFallback, 0.001f)
+  }
+
+  @Test
+  fun `frame delta smoother dampens vsync jitter while preserving dropped frames and cadence shifts`() {
+    val smoother = com.example.ui.components.FrameDeltaSmoother()
+    val nominal = 16_666_667L
+    assertEquals(nominal / 1_000_000_000.0, smoother.recordDeltaSeconds(nominal), 0.0001)
+
+    // Small 2ms jitter should be dampened toward nominal 16.67ms rather than passed raw
+    val jittered = smoother.recordDeltaSeconds(18_666_667L)
+    assertTrue(jittered > 0.01667 && jittered < 0.0172)
+
+    // Single 2x frame drop passes through immediately without corrupting nominal cadence
+    val dropped = smoother.recordDeltaSeconds(33_333_333L)
+    assertEquals(0.0333333, dropped, 0.0001)
+
+    // Next normal frame resumes smooth ~16.7ms cadence instead of sticking near 33ms
+    val resumed = smoother.recordDeltaSeconds(nominal)
+    assertTrue(resumed < 0.0175)
+
+    // Two consecutive 120Hz frames (8.33ms) re-lock smoothed cadence to 120Hz
+    smoother.recordDeltaSeconds(8_333_333L)
+    smoother.recordDeltaSeconds(8_333_333L)
+    val locked120Hz = smoother.recordDeltaSeconds(8_333_333L)
+    assertEquals(0.0083333, locked120Hz, 0.0001)
   }
 }

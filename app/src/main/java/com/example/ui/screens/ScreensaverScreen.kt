@@ -78,6 +78,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
@@ -127,6 +128,7 @@ import com.example.data.model.formatSunTimeLabel
 import com.example.ui.ClockDisplay
 import com.example.ui.ScreensaverViewModel
 import com.example.ui.WeatherUiState
+import com.example.ui.components.FrameDeltaSmoother
 import com.example.ui.components.PlasmaShieldState
 import com.example.ui.components.RotatingHourlyCubePanel
 import com.example.ui.components.SunriseSunGlyph
@@ -1107,7 +1109,7 @@ private fun ScaledContentBox(
 }
 
 @Composable
-private fun ScreensaverWeatherCanvas(
+internal fun ScreensaverWeatherCanvas(
   snapshot: WeatherSnapshot,
   settings: UserSettings,
   clockDisplay: ClockDisplay,
@@ -1126,7 +1128,6 @@ private fun ScreensaverWeatherCanvas(
     )
   val showBottomBar = enabledBottomBarFaces.isNotEmpty()
   val isHeroOnly = !show7Day && !showBottomBar
-  val isDvdBounce = settings.driftMotionMode == DriftMotionMode.DVD_BOUNCE
   val contentScale = com.example.ui.components.motionModeContentScale(settings.driftMotionMode)
 
   BoxWithConstraints(
@@ -1148,14 +1149,13 @@ private fun ScreensaverWeatherCanvas(
       if (bannerSlotHeightPx > 0) with(density) { bannerSlotHeightPx.toDp().value } else 0f
 
     val effectiveTopReserveDp =
-      computeHeroAlertReserveTopDp(
-        isHeroOnly = isHeroOnly,
+      computeAlertBannerReserveTopDp(
         hasActiveAlertsBanner = showAlertsBanner,
         measuredBannerHeightDp = bannerHeightDp,
         isCompact = !isTvWide || isShortLandscape,
         stageHeightDp = stageHeightDp,
       )
-    val heroPlayfieldHeightDp = (stageHeightDp - effectiveTopReserveDp).coerceAtLeast(1f)
+    val contentPlayfieldHeightDp = (stageHeightDp - effectiveTopReserveDp).coerceAtLeast(1f)
 
     val freeX =
       if (renderedSizePx.width > 0) {
@@ -1166,14 +1166,14 @@ private fun ScreensaverWeatherCanvas(
       }
     val freeY =
       if (renderedSizePx.height > 0) {
-        ((heroPlayfieldHeightDp - with(density) { renderedSizePx.height.toDp().value }) / 2f - 4f)
+        ((contentPlayfieldHeightDp - with(density) { renderedSizePx.height.toDp().value }) / 2f - 4f)
           .coerceAtLeast(1f)
       } else {
         settings.driftIntensity.maxOffsetDp * 0.65f
       }
 
     // Both Clockwise (90% scale) and DVD Bounce (80% scale) sweep across all free TV edges
-    // (or stay strictly below the alert banner in hero-only mode when an alert is active).
+    // (or stay strictly below the pinned top alert banner whenever an alert is active).
     val targetMaxX = freeX
     val targetMaxY = freeY
 
@@ -1181,8 +1181,8 @@ private fun ScreensaverWeatherCanvas(
       onUpdateDriftBounds(targetMaxX, targetMaxY)
     }
 
-    // When both 7-Day and 24-Hour are OFF, show any active alert banner pinned at top with zero static borders
-    if (showAlertsBanner && isHeroOnly) {
+    // Always pin active weather alerts at the top outside drifting/bouncing content with no static borders
+    if (showAlertsBanner) {
       Box(
         modifier =
           Modifier.align(Alignment.TopCenter)
@@ -1197,7 +1197,6 @@ private fun ScreensaverWeatherCanvas(
           alerts = snapshot.alerts,
           plasma = plasma,
           isCompact = !isTvWide || isShortLandscape,
-          borderlessScrollAll = true,
           modifier =
             Modifier.fillMaxWidth()
               .padding(horizontal = 8.dp, vertical = 2.dp),
@@ -1238,16 +1237,6 @@ private fun ScreensaverWeatherCanvas(
             Modifier.fillMaxWidth()
               .then(if (fillsFullHeight) Modifier.fillMaxHeight() else Modifier),
         ) {
-          if (showAlertsBanner) {
-            SevereWeatherAlertBanner(
-              alerts = snapshot.alerts,
-              plasma = plasma,
-              isCompact = !isTvWide || isShortLandscape,
-              modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(modifier = Modifier.height(if (isShortLandscape) 6.dp else 10.dp))
-          }
-
           if (isTvWide) {
             when {
               show7Day && showBottomBar -> {
@@ -1477,14 +1466,13 @@ private fun ScreensaverWeatherCanvas(
   }
 }
 
-internal fun computeHeroAlertReserveTopDp(
-  isHeroOnly: Boolean,
+internal fun computeAlertBannerReserveTopDp(
   hasActiveAlertsBanner: Boolean,
   measuredBannerHeightDp: Float,
   isCompact: Boolean,
   stageHeightDp: Float,
 ): Float {
-  if (!isHeroOnly || !hasActiveAlertsBanner) return 0f
+  if (!hasActiveAlertsBanner) return 0f
   val baseBannerDp =
     if (measuredBannerHeightDp > 0f) {
       measuredBannerHeightDp
@@ -1502,7 +1490,6 @@ private fun SevereWeatherAlertBanner(
   alerts: List<WeatherAlert>,
   plasma: PlasmaShieldState,
   isCompact: Boolean,
-  borderlessScrollAll: Boolean = false,
   modifier: Modifier = Modifier,
 ) {
   val hasSevere =
@@ -1526,40 +1513,16 @@ private fun SevereWeatherAlertBanner(
   Surface(
     modifier = modifier.testTag("severe_weather_alert_banner"),
     shape = RoundedCornerShape(14.dp),
-    color = if (borderlessScrollAll) Color.Transparent else Color.Black.copy(alpha = 0.84f),
-    border = if (borderlessScrollAll) null else BorderStroke(1.2.dp, alertTint.copy(alpha = 0.72f)),
+    color = Color.Transparent,
+    border = null,
   ) {
-    if (borderlessScrollAll) {
-      SmoothMarqueeTicker(
-        alwaysScroll = true,
-        modifier =
-          Modifier.fillMaxWidth()
-            .padding(horizontal = 6.dp, vertical = if (isCompact) 5.dp else 7.dp),
-      ) {
-        Row(
-          verticalAlignment = Alignment.CenterVertically,
-          horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-          AlertSeverityPill(
-            hasSevere = hasSevere,
-            alertTint = alertTint,
-            isCompact = isCompact,
-            showBorder = false,
-          )
-          Text(
-            text = tickerText,
-            style = tickerStyle,
-            color = plasma.primaryTextColor,
-            maxLines = 1,
-            softWrap = false,
-          )
-        }
-      }
-    } else {
+    SmoothMarqueeTicker(
+      alwaysScroll = true,
+      modifier =
+        Modifier.fillMaxWidth()
+          .padding(horizontal = 6.dp, vertical = if (isCompact) 5.dp else 7.dp),
+    ) {
       Row(
-        modifier =
-          Modifier.fillMaxWidth()
-            .padding(horizontal = 14.dp, vertical = if (isCompact) 7.dp else 9.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
       ) {
@@ -1567,21 +1530,14 @@ private fun SevereWeatherAlertBanner(
           hasSevere = hasSevere,
           alertTint = alertTint,
           isCompact = isCompact,
-          showBorder = true,
         )
-
-        SmoothMarqueeTicker(
-          alwaysScroll = false,
-          modifier = Modifier.weight(1f),
-        ) {
-          Text(
-            text = tickerText,
-            style = tickerStyle,
-            color = plasma.primaryTextColor,
-            maxLines = 1,
-            softWrap = false,
-          )
-        }
+        Text(
+          text = tickerText,
+          style = tickerStyle,
+          color = plasma.primaryTextColor,
+          maxLines = 1,
+          softWrap = false,
+        )
       }
     }
   }
@@ -1592,12 +1548,11 @@ private fun AlertSeverityPill(
   hasSevere: Boolean,
   alertTint: Color,
   isCompact: Boolean,
-  showBorder: Boolean,
 ) {
   Surface(
     shape = RoundedCornerShape(8.dp),
     color = alertTint.copy(alpha = 0.18f),
-    border = if (showBorder) BorderStroke(1.dp, alertTint.copy(alpha = 0.55f)) else null,
+    border = null,
   ) {
     Row(
       modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
@@ -1656,9 +1611,10 @@ private fun SmoothMarqueeTicker(
     if (!shouldScroll || speedPxPerSec <= 0f) return@LaunchedEffect
 
     var lastFrameNanos = withFrameNanos { it }
+    val deltaSmoother = FrameDeltaSmoother()
     while (true) {
       withFrameNanos { frameNanos ->
-        val deltaSec = ((frameNanos - lastFrameNanos).coerceIn(0L, 100_000_000L)) / 1_000_000_000.0
+        val deltaSec = deltaSmoother.recordDeltaSeconds(frameNanos - lastFrameNanos)
         lastFrameNanos = frameNanos
         val next = (scrollOffsetPx.floatValue + (speedPxPerSec * deltaSec).toFloat()) % cyclePx
         scrollOffsetPx.floatValue = if (next < 0f) next + cyclePx else next
@@ -1690,15 +1646,23 @@ private fun SmoothMarqueeTicker(
       val layoutGapPx =
         if (alwaysScroll && primary.width < vpW) vpW - primary.width + gapPx else gapPx
       val totalCycle = (primary.width + layoutGapPx).toFloat().coerceAtLeast(1f)
+      val tickerCompositing =
+        if (scrollingNow && primary.width in 1..3840 && height in 1..1024) {
+          CompositingStrategy.Offscreen
+        } else {
+          CompositingStrategy.Auto
+        }
 
       layout(vpW, height) {
         if (!scrollingNow) {
           primary.placeRelative(0, 0)
         } else {
           primary.placeWithLayer(0, 0) {
+            compositingStrategy = tickerCompositing
             translationX = -scrollOffsetPx.floatValue
           }
           secondary.placeWithLayer(0, 0) {
+            compositingStrategy = tickerCompositing
             translationX = totalCycle - scrollOffsetPx.floatValue
           }
         }
@@ -1852,6 +1816,7 @@ private fun HeroWeatherClusterContent(
   ) {
     // Location alone on top line | Day/Date + Clock below with matching fonts
     Column(
+      modifier = Modifier.graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen },
       horizontalAlignment = Alignment.CenterHorizontally,
       verticalArrangement = Arrangement.spacedBy((2f * scaleFactor).dp),
     ) {
@@ -1946,11 +1911,13 @@ private fun HeroWeatherClusterContent(
           minFontSize = condMinSp,
           modifier =
             Modifier.widthIn(max = ((if (isCompact) 128f else 146f) * scaleFactor).dp)
+              .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
               .testTag("current_condition_text"),
         )
       }
 
       Column(
+        modifier = Modifier.graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen },
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy((if (isCompact) 1f else 2f * scaleFactor).dp),
       ) {
@@ -2005,7 +1972,8 @@ private fun HeroWeatherClusterContent(
 
     // Stacked Secondary Atmospheric Details: Humidity/Wind, then Low/High, then Sunrise/Sunset
     val detailsContainerModifier =
-      if (tightWrap) Modifier.wrapContentWidth() else Modifier.fillMaxWidth()
+      (if (tightWrap) Modifier.wrapContentWidth() else Modifier.fillMaxWidth())
+        .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
 
     BoxWithConstraints(
       modifier = detailsContainerModifier,
@@ -2210,7 +2178,8 @@ private fun MultiDayForecastPanel(
   ) {
     Column(
       modifier =
-        Modifier.then(if (fillVertical) Modifier.fillMaxSize() else Modifier)
+        Modifier.graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+          .then(if (fillVertical) Modifier.fillMaxSize() else Modifier)
           .padding(
             horizontal = 8.dp,
             vertical = if (cardCompact) 6.dp else if (expandedVertical) 12.dp else 8.dp,

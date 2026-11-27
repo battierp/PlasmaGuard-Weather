@@ -26,9 +26,34 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.unit.dp
+import com.example.data.model.DailyForecast
+import com.example.data.model.HourlyMetricSlot
+import com.example.data.model.HourlySlot
+import com.example.data.model.TemperatureUnit
+import com.example.data.model.WeatherAlert
+import com.example.data.model.WeatherSnapshot
+import com.example.ui.ClockDisplay
+import com.example.ui.components.PlasmaColors
+import com.example.ui.components.PlasmaShieldState
+import com.example.ui.screens.ScreensaverWeatherCanvas
+import com.example.ui.theme.AuroraCyan
+import com.example.ui.theme.MutedSlateText
+import com.example.ui.theme.PlasmaSkyTheme
+import com.example.ui.theme.SeafoamTeal
+import com.example.ui.theme.SoftFrostText
+import org.junit.Rule
+
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
 class ExampleRobolectricTest {
+
+  @get:Rule val composeTestRule = createComposeRule()
 
   @Test
   fun `read string from context`() {
@@ -208,5 +233,130 @@ class ExampleRobolectricTest {
     assertEquals("Mod", aqiCategoryLabel(75))
     assertEquals("Poor", aqiCategoryLabel(165))
     assertEquals("N/A", aqiCategoryLabel(null))
+  }
+
+  @Test
+  fun `weather alert banner stays pinned at top in full dashboard mode while plasma drift moves panels`() {
+    val offsetX = mutableFloatStateOf(0f)
+    val offsetY = mutableFloatStateOf(0f)
+    val pulse = mutableFloatStateOf(1f)
+    val plasma =
+      PlasmaShieldState(
+        initialColors =
+          PlasmaColors(
+            primaryTextColor = SoftFrostText,
+            secondaryTextColor = MutedSlateText,
+            primaryAccent = AuroraCyan,
+            secondaryAccent = SeafoamTeal,
+          ),
+        offsetXDpFloatState = offsetX,
+        offsetYDpFloatState = offsetY,
+        pulseState = pulse,
+      )
+    val snapshot =
+      WeatherSnapshot(
+        locationName = "Denver",
+        latitude = 39.7392,
+        longitude = -104.9903,
+        currentTemp = 48,
+        feelsLikeTemp = 44,
+        todayHighTemp = 54,
+        todayLowTemp = 32,
+        humidityPercent = 40,
+        windSpeed = 12,
+        windGusts = 48,
+        windUnitLabel = "mph",
+        tempUnit = TemperatureUnit.FAHRENHEIT,
+        currentCondition = WeatherCondition.PARTLY_CLOUDY,
+        hourlySlots =
+          (0 until 12).map { i ->
+            HourlySlot(
+              hour24 = (i * 2) % 24,
+              minute = 0,
+              temperature = 45 + i,
+              condition = WeatherCondition.PARTLY_CLOUDY,
+              precipProbability = 10,
+              isDay = true,
+              isNow = i == 0,
+            )
+          },
+        next12Hours =
+          (0 until 12).map { i ->
+            HourlyMetricSlot(
+              hour24 = i,
+              minute = 0,
+              precipProbability = 10,
+              windSpeed = 12,
+              windGusts = 22,
+              windDirectionDeg = 180,
+              usAqi = 35,
+            )
+          },
+        dailyForecasts =
+          listOf("Tue", "Wed", "Thu", "Fri", "Sat", "Sun", "Mon").map { day ->
+            DailyForecast(day, WeatherCondition.SUNNY, 58, 34, 10)
+          },
+        alerts =
+          listOf(
+            WeatherAlert(
+              event = "High Wind Advisory",
+              severity = "Moderate",
+              headline = "Strong wind gusts up to 48 mph expected",
+            )
+          ),
+        sunriseHour24 = 6,
+        sunriseMinute = 42,
+        sunsetHour24 = 16,
+        sunsetMinute = 50,
+        fetchedAtEpochMs = 1_000_000L,
+      )
+
+    composeTestRule.mainClock.autoAdvance = false
+    var bannerTopBefore = -1f
+    var bannerTopAfter = -1f
+    var tempXBefore = -1f
+    var tempXAfter = -1f
+
+    composeTestRule.setContent {
+      PlasmaSkyTheme {
+        Box(modifier = Modifier.size(960.dp, 540.dp)) {
+          ScreensaverWeatherCanvas(
+            snapshot = snapshot,
+            settings =
+              UserSettings(
+                show7DayForecast = true,
+                showBottomBarTemp24h = true,
+                showSevereWeatherAlerts = true,
+                driftMotionMode = DriftMotionMode.DVD_BOUNCE,
+              ),
+            clockDisplay = ClockDisplay("5:12 PM", "Thu, Nov 26"),
+            plasma = plasma,
+            forceTvWide = true,
+            onUpdateDriftBounds = { _, _ -> },
+          )
+        }
+      }
+    }
+
+    composeTestRule.mainClock.advanceTimeByFrame()
+    composeTestRule.waitForIdle()
+    val bannerNode =
+      composeTestRule.onNode(
+        androidx.compose.ui.test.hasTestTag("severe_weather_alert_banner")
+      )
+    val tempNode =
+      composeTestRule.onNode(androidx.compose.ui.test.hasTestTag("current_temp_text"))
+    bannerTopBefore = bannerNode.fetchSemanticsNode().boundsInRoot.top
+    tempXBefore = tempNode.fetchSemanticsNode().boundsInRoot.left
+
+    offsetX.floatValue = 22f
+    offsetY.floatValue = 12f
+    composeTestRule.mainClock.advanceTimeByFrame()
+    composeTestRule.waitForIdle()
+    bannerTopAfter = bannerNode.fetchSemanticsNode().boundsInRoot.top
+    tempXAfter = tempNode.fetchSemanticsNode().boundsInRoot.left
+
+    assertEquals(bannerTopBefore, bannerTopAfter, 0.5f)
+    assertTrue("Expected weather panel to drift horizontally", kotlin.math.abs(tempXAfter - tempXBefore) > 5f)
   }
 }
