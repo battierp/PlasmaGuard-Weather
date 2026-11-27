@@ -100,6 +100,18 @@ object AppUpdateManager {
       Intent(Settings.ACTION_SECURITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }
 
+  fun openUnknownSourcesPermissionSettings(context: Context): Result<Unit> =
+    runCatching {
+      context.startActivity(createUnknownSourcesPermissionIntent(context))
+    }.recoverCatching {
+      val appDetailsIntent =
+        Intent(
+          Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+          Uri.parse("package:${context.packageName}"),
+        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+      context.startActivity(appDetailsIntent)
+    }
+
   fun verifyApkCompatibility(context: Context, apkFile: File): ApkCompatibilityResult {
     if (!hasZipApkHeader(apkFile)) {
       return ApkCompatibilityResult.Incompatible(

@@ -928,15 +928,17 @@ fun SettingsOverlay(
 
         val updateFocusPhase =
           when (appUpdateState) {
-            is AppUpdateUiState.Idle -> "idle"
-            is AppUpdateUiState.Checking -> "checking"
-            is AppUpdateUiState.UpToDate -> "up_to_date"
-            is AppUpdateUiState.UpdateAvailable -> "available_${appUpdateState.latestVersion}"
-            is AppUpdateUiState.Downloading -> "downloading_${appUpdateState.latestVersion}"
+            is AppUpdateUiState.Idle -> "idle_$canInstallUnknownApps"
+            is AppUpdateUiState.Checking -> "checking_$canInstallUnknownApps"
+            is AppUpdateUiState.UpToDate -> "up_to_date_$canInstallUnknownApps"
+            is AppUpdateUiState.UpdateAvailable ->
+              "available_${appUpdateState.latestVersion}_$canInstallUnknownApps"
+            is AppUpdateUiState.Downloading ->
+              "downloading_${appUpdateState.latestVersion}_$canInstallUnknownApps"
             is AppUpdateUiState.ReadyToInstall ->
               "ready_${appUpdateState.latestVersion}_$canInstallUnknownApps"
-            is AppUpdateUiState.Error -> "error"
-            is AppUpdateUiState.RepoNotConfigured -> "unconfigured"
+            is AppUpdateUiState.Error -> "error_$canInstallUnknownApps"
+            is AppUpdateUiState.RepoNotConfigured -> "unconfigured_$canInstallUnknownApps"
           }
 
         LaunchedEffect(updateFocusPhase, keepFocusInUpdates) {
@@ -957,13 +959,11 @@ fun SettingsOverlay(
               runCatching { targetRequester.requestFocus() }
               keepFocusInUpdates = false
             }
+            is AppUpdateUiState.Idle,
             is AppUpdateUiState.UpToDate,
             is AppUpdateUiState.Error,
             is AppUpdateUiState.RepoNotConfigured -> {
               runCatching { checkUpdateFocusRequester.requestFocus() }
-              keepFocusInUpdates = false
-            }
-            is AppUpdateUiState.Idle -> {
               keepFocusInUpdates = false
             }
           }
@@ -993,11 +993,19 @@ fun SettingsOverlay(
             val statusLine =
               when (appUpdateState) {
                 is AppUpdateUiState.Idle ->
-                  "Check GitHub Releases to download and install updates in-app."
+                  if (canInstallUnknownApps) {
+                    "Check GitHub Releases to download and install updates in-app."
+                  } else {
+                    "Allow app installs now so future updates install directly, or check GitHub Releases."
+                  }
                 is AppUpdateUiState.Checking ->
                   "Checking GitHub Releases..."
                 is AppUpdateUiState.UpToDate ->
-                  "You are up to date (v${appUpdateState.currentVersion})."
+                  if (canInstallUnknownApps) {
+                    "You are up to date (v${appUpdateState.currentVersion})."
+                  } else {
+                    "You are up to date (v${appUpdateState.currentVersion}). Allow app installs now so future updates install seamlessly."
+                  }
                 is AppUpdateUiState.UpdateAvailable ->
                   "New version ready: v${appUpdateState.latestVersion}"
                 is AppUpdateUiState.Downloading -> {
@@ -1184,46 +1192,49 @@ fun SettingsOverlay(
                 }
               }
 
-              if (appUpdateState is AppUpdateUiState.ReadyToInstall) {
-                if (!canInstallUnknownApps) {
-                  var permFocused by remember { mutableStateOf(false) }
-                  val permScale by animateFloatAsState(
-                    targetValue = if (permFocused) 1.05f else 1f,
-                    label = "perm_install_scale",
+              if (!canInstallUnknownApps) {
+                var permFocused by remember { mutableStateOf(false) }
+                val permScale by animateFloatAsState(
+                  targetValue = if (permFocused) 1.05f else 1f,
+                  label = "perm_install_scale",
+                )
+                Button(
+                  onClick = {
+                    keepFocusInUpdates = true
+                    installActionError = null
+                    AppUpdateManager.openUnknownSourcesPermissionSettings(context).onFailure { err ->
+                      installActionError =
+                        err.localizedMessage ?: "Unable to open Install Unknown Apps settings."
+                    }
+                  },
+                  modifier =
+                    Modifier.scale(permScale)
+                      .minimumInteractiveComponentSize()
+                      .focusRequester(grantPermissionFocusRequester)
+                      .onFocusChanged { permFocused = it.isFocused || it.hasFocus }
+                      .testTag("grant_install_permission_button"),
+                  shape = RoundedCornerShape(14.dp),
+                  border = if (permFocused) BorderStroke(3.dp, BrightGold) else null,
+                  colors =
+                    ButtonDefaults.buttonColors(
+                      containerColor = BrightGold,
+                      contentColor = ObsidianBlack,
+                    ),
+                ) {
+                  Icon(
+                    imageVector = Icons.Rounded.Shield,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
                   )
-                  Button(
-                    onClick = {
-                      keepFocusInUpdates = true
-                      installActionError = null
-                      runCatching {
-                        context.startActivity(
-                          AppUpdateManager.createUnknownSourcesPermissionIntent(context)
-                        )
-                      }.onFailure { err ->
-                        installActionError =
-                          err.localizedMessage ?: "Unable to open Install Unknown Apps settings."
-                      }
-                    },
-                    modifier =
-                      Modifier.scale(permScale)
-                        .minimumInteractiveComponentSize()
-                        .focusRequester(grantPermissionFocusRequester)
-                        .onFocusChanged { permFocused = it.isFocused || it.hasFocus }
-                        .testTag("grant_install_permission_button"),
-                    shape = RoundedCornerShape(14.dp),
-                    border = if (permFocused) BorderStroke(3.dp, BrightGold) else null,
-                    colors =
-                      ButtonDefaults.buttonColors(
-                        containerColor = BrightGold,
-                        contentColor = ObsidianBlack,
-                      ),
-                  ) {
-                    Text(
-                      text = "Allow App Installs",
-                      fontWeight = FontWeight.SemiBold,
-                    )
-                  }
-                } else {
+                  Spacer(modifier = Modifier.width(6.dp))
+                  Text(
+                    text = "Allow App Installs",
+                    fontWeight = FontWeight.SemiBold,
+                  )
+                }
+              }
+
+              if (appUpdateState is AppUpdateUiState.ReadyToInstall && canInstallUnknownApps) {
                   var installFocused by remember { mutableStateOf(false) }
                   val installScale by animateFloatAsState(
                     targetValue = if (installFocused) 1.05f else 1f,
@@ -1273,7 +1284,6 @@ fun SettingsOverlay(
                       fontWeight = FontWeight.SemiBold,
                     )
                   }
-                }
               }
             }
           }

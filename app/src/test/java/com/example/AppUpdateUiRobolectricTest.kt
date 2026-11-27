@@ -193,4 +193,74 @@ class AppUpdateUiRobolectricTest {
     downloadButton.performKeyInput { pressKey(Key.DirectionCenter) }
     composeTestRule.waitForIdle()
   }
+
+  @Test
+  fun `allow app installs shortcut shows in idle state when denied and disappears once granted`() {
+    val context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
+    org.robolectric.Shadows.shadowOf(context.packageManager).setCanRequestPackageInstalls(false)
+
+    lateinit var registry: androidx.lifecycle.LifecycleRegistry
+    val lifecycleOwner =
+      object : androidx.lifecycle.LifecycleOwner {
+        override val lifecycle: androidx.lifecycle.Lifecycle
+          get() = registry
+      }
+    registry = androidx.lifecycle.LifecycleRegistry(lifecycleOwner).apply {
+      currentState = androidx.lifecycle.Lifecycle.State.RESUMED
+    }
+
+    composeTestRule.setContent {
+      androidx.compose.runtime.CompositionLocalProvider(
+        androidx.lifecycle.compose.LocalLifecycleOwner provides lifecycleOwner
+      ) {
+        PlasmaSkyTheme {
+          SettingsOverlay(
+            settings = UserSettings(),
+            citySearchState = CitySearchUiState(),
+            activeAlerts = emptyList(),
+            accentColor = AuroraCyan,
+            onDismiss = {},
+            onQueryChange = {},
+            onSearchSubmit = {},
+            onSelectCity = {},
+            onSelectSavedLocation = {},
+            onRemoveSavedLocation = {},
+            onToggleAutoRotateLocations = {},
+            onSelectUnit = {},
+            onSelectWindUnit = {},
+            onToggle24Hour = {},
+            onToggle7DayForecast = {},
+            onToggleBottomBarTemp24h = {},
+            onToggleBottomBarWind = {},
+            onToggleBottomBarAirQuality = {},
+            onToggleBottomBarPrecipitation = {},
+            onToggleSevereAlerts = {},
+            onSelectDriftIntensity = {},
+            onSelectDriftMotionMode = {},
+            onSelectTextColor = {},
+            onRefreshWeather = {},
+            appUpdateState = AppUpdateUiState.Idle,
+            onCheckForAppUpdate = {},
+            onDownloadAndInstallUpdate = { _, _ -> },
+            onConsumeAutoInstallLaunch = {},
+          )
+        }
+      }
+    }
+
+    composeTestRule.waitForIdle()
+    val permButton = composeTestRule.onNodeWithTag("grant_install_permission_button")
+    permButton.performScrollTo()
+    permButton.assertIsDisplayed()
+
+    // Simulate user granting unknown app installs in Android Settings and returning to PlasmaSky
+    org.robolectric.Shadows.shadowOf(context.packageManager).setCanRequestPackageInstalls(true)
+    composeTestRule.runOnUiThread {
+      registry.handleLifecycleEvent(androidx.lifecycle.Lifecycle.Event.ON_PAUSE)
+      registry.handleLifecycleEvent(androidx.lifecycle.Lifecycle.Event.ON_RESUME)
+    }
+    composeTestRule.waitForIdle()
+
+    composeTestRule.onNodeWithTag("grant_install_permission_button").assertDoesNotExist()
+  }
 }
