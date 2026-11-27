@@ -460,22 +460,24 @@ class ScreensaverViewModel(application: Application) : AndroidViewModel(applicat
             totalBytes = -1L,
           )
         runCatching {
-          AppUpdateManager.downloadApk(
-            context = getApplication(),
-            downloadUrl = downloadUrl,
-            versionLabel = latestVersion,
-          ) { downloadedBytes, totalBytes ->
-            _appUpdateState.value =
-              AppUpdateUiState.Downloading(
-                latestVersion = latestVersion,
-                downloadedBytes = downloadedBytes,
-                totalBytes = totalBytes,
-              )
-          }
-        }.onSuccess { apkFile ->
+          val apkFile =
+            AppUpdateManager.downloadApk(
+              context = getApplication(),
+              downloadUrl = downloadUrl,
+              versionLabel = latestVersion,
+            ) { downloadedBytes, totalBytes ->
+              _appUpdateState.value =
+                AppUpdateUiState.Downloading(
+                  latestVersion = latestVersion,
+                  downloadedBytes = downloadedBytes,
+                  totalBytes = totalBytes,
+                )
+            }
           val compatibility = AppUpdateManager.verifyApkCompatibility(getApplication(), apkFile)
           val incompatibilityReason =
             (compatibility as? ApkCompatibilityResult.Incompatible)?.reason
+          apkFile to incompatibilityReason
+        }.onSuccess { (apkFile, incompatibilityReason) ->
           _appUpdateState.value =
             AppUpdateUiState.ReadyToInstall(
               latestVersion = latestVersion,

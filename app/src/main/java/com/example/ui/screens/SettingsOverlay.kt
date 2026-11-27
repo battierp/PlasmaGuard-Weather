@@ -926,7 +926,20 @@ fun SettingsOverlay(
           }
         }
 
-        LaunchedEffect(appUpdateState, canInstallUnknownApps, keepFocusInUpdates) {
+        val updateFocusPhase =
+          when (appUpdateState) {
+            is AppUpdateUiState.Idle -> "idle"
+            is AppUpdateUiState.Checking -> "checking"
+            is AppUpdateUiState.UpToDate -> "up_to_date"
+            is AppUpdateUiState.UpdateAvailable -> "available_${appUpdateState.latestVersion}"
+            is AppUpdateUiState.Downloading -> "downloading_${appUpdateState.latestVersion}"
+            is AppUpdateUiState.ReadyToInstall ->
+              "ready_${appUpdateState.latestVersion}_$canInstallUnknownApps"
+            is AppUpdateUiState.Error -> "error"
+            is AppUpdateUiState.RepoNotConfigured -> "unconfigured"
+          }
+
+        LaunchedEffect(updateFocusPhase, keepFocusInUpdates) {
           if (!keepFocusInUpdates) return@LaunchedEffect
           withFrameNanos {}
           when (appUpdateState) {
@@ -996,12 +1009,12 @@ fun SettingsOverlay(
                     } else {
                       null
                     }
-                  val dlMb = appUpdateState.downloadedBytes / (1024f * 1024f)
+                  val dlMbText = "%.1f".format(appUpdateState.downloadedBytes / (1024f * 1024f))
                   if (pct != null) {
-                    val totalMb = appUpdateState.totalBytes / (1024f * 1024f)
-                    "Downloading v${appUpdateState.latestVersion}... $pct% (%.1f / %.1f MB)".format(dlMb, totalMb)
+                    val totalMbText = "%.1f".format(appUpdateState.totalBytes / (1024f * 1024f))
+                    "Downloading v${appUpdateState.latestVersion}... $pct% ($dlMbText / $totalMbText MB)"
                   } else {
-                    "Downloading v${appUpdateState.latestVersion}... %.1f MB".format(dlMb)
+                    "Downloading v${appUpdateState.latestVersion}... $dlMbText MB"
                   }
                 }
                 is AppUpdateUiState.ReadyToInstall ->
