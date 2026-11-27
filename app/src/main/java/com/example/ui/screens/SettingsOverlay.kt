@@ -996,7 +996,7 @@ fun SettingsOverlay(
                   if (canInstallUnknownApps) {
                     "Check GitHub Releases to download and install updates in-app."
                   } else {
-                    "Allow app installs now so future updates install directly, or check GitHub Releases."
+                    "Grant permission to PlasmaSky to enable updating from within the app directly."
                   }
                 is AppUpdateUiState.Checking ->
                   "Checking GitHub Releases..."
@@ -1004,7 +1004,7 @@ fun SettingsOverlay(
                   if (canInstallUnknownApps) {
                     "You are up to date (v${appUpdateState.currentVersion})."
                   } else {
-                    "You are up to date (v${appUpdateState.currentVersion}). Allow app installs now so future updates install seamlessly."
+                    "You are up to date (v${appUpdateState.currentVersion}). Grant permission to PlasmaSky to enable updating from within the app directly."
                   }
                 is AppUpdateUiState.UpdateAvailable ->
                   "New version ready: v${appUpdateState.latestVersion}"
@@ -1036,7 +1036,7 @@ fun SettingsOverlay(
                     canInstallUnknownApps ->
                       "v${appUpdateState.latestVersion} downloaded and ready to install."
                     else ->
-                      "v${appUpdateState.latestVersion} downloaded. Allow PlasmaSky to install updates in Android Settings, then press Install."
+                      "v${appUpdateState.latestVersion} downloaded. Grant permission to PlasmaSky to enable updating from within the app directly."
                   }
                 is AppUpdateUiState.Error ->
                   appUpdateState.message
@@ -1228,7 +1228,7 @@ fun SettingsOverlay(
                   )
                   Spacer(modifier = Modifier.width(6.dp))
                   Text(
-                    text = "Allow App Installs",
+                    text = "Grant Permission",
                     fontWeight = FontWeight.SemiBold,
                   )
                 }

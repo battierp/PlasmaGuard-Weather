@@ -249,9 +249,14 @@ class AppUpdateUiRobolectricTest {
     }
 
     composeTestRule.waitForIdle()
+    composeTestRule
+      .onNodeWithText("Grant permission to PlasmaSky to enable updating from within the app directly.")
+      .performScrollTo()
+      .assertIsDisplayed()
     val permButton = composeTestRule.onNodeWithTag("grant_install_permission_button")
     permButton.performScrollTo()
     permButton.assertIsDisplayed()
+    composeTestRule.onNodeWithText("Grant Permission").assertIsDisplayed()
 
     // Simulate user granting unknown app installs in Android Settings and returning to PlasmaSky
     org.robolectric.Shadows.shadowOf(context.packageManager).setCanRequestPackageInstalls(true)
