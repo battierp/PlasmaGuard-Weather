@@ -195,9 +195,10 @@ class AppUpdateUiRobolectricTest {
   }
 
   @Test
-  fun `allow app installs shortcut shows in idle state when denied and disappears once granted`() {
+  fun `permission helper text and shortcuts adapt across all four permission states and vanish when both are granted`() {
     val context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
     org.robolectric.Shadows.shadowOf(context.packageManager).setCanRequestPackageInstalls(false)
+    org.robolectric.shadows.ShadowSettings.setCanDrawOverlays(false)
 
     lateinit var registry: androidx.lifecycle.LifecycleRegistry
     val lifecycleOwner =
@@ -248,24 +249,97 @@ class AppUpdateUiRobolectricTest {
       }
     }
 
-    composeTestRule.waitForIdle()
-    composeTestRule
-      .onNodeWithText("Grant permission to PlasmaSky to enable updating from within the app directly.")
-      .performScrollTo()
-      .assertIsDisplayed()
-    val permButton = composeTestRule.onNodeWithTag("grant_install_permission_button")
-    permButton.performScrollTo()
-    permButton.assertIsDisplayed()
-    composeTestRule.onNodeWithText("Grant Permission").assertIsDisplayed()
+    val updatesSentence = "Allow Updates lets PlasmaSky install releases directly from inside the app."
+    val relaunchSentence =
+      "Allow Auto-Relaunch lets PlasmaSky reopen automatically after an update instead of closing until you launch it manually."
 
-    // Simulate user granting unknown app installs in Android Settings and returning to PlasmaSky
+    // 1. Neither permission granted: both helper sentences and both buttons visible
+    composeTestRule.waitForIdle()
+    val helperNode = composeTestRule.onNodeWithTag("update_permissions_helper_text")
+    helperNode.performScrollTo()
+    helperNode.assertIsDisplayed()
+    composeTestRule
+      .onNodeWithText("$updatesSentence $relaunchSentence")
+      .assertIsDisplayed()
+    val updatesBtn = composeTestRule.onNodeWithTag("grant_install_permission_button")
+    updatesBtn.performScrollTo()
+    updatesBtn.assertIsDisplayed()
+    composeTestRule.onNodeWithText("Allow Updates").assertIsDisplayed()
+    val relaunchBtn = composeTestRule.onNodeWithTag("grant_relaunch_permission_button")
+    relaunchBtn.performScrollTo()
+    relaunchBtn.assertIsDisplayed()
+    composeTestRule.onNodeWithText("Allow Auto-Relaunch").assertIsDisplayed()
+
+    // 2. Updates granted, Auto-Relaunch still missing: only relaunch sentence & button visible
     org.robolectric.Shadows.shadowOf(context.packageManager).setCanRequestPackageInstalls(true)
     composeTestRule.runOnUiThread {
       registry.handleLifecycleEvent(androidx.lifecycle.Lifecycle.Event.ON_PAUSE)
       registry.handleLifecycleEvent(androidx.lifecycle.Lifecycle.Event.ON_RESUME)
     }
     composeTestRule.waitForIdle()
-
     composeTestRule.onNodeWithTag("grant_install_permission_button").assertDoesNotExist()
+    composeTestRule.onNodeWithTag("grant_relaunch_permission_button").assertIsDisplayed()
+    composeTestRule.onNodeWithText(relaunchSentence).assertIsDisplayed()
+
+    // 3. Auto-Relaunch granted, Updates missing: only updates sentence & button visible
+    org.robolectric.Shadows.shadowOf(context.packageManager).setCanRequestPackageInstalls(false)
+    org.robolectric.shadows.ShadowSettings.setCanDrawOverlays(true)
+    composeTestRule.runOnUiThread {
+      registry.handleLifecycleEvent(androidx.lifecycle.Lifecycle.Event.ON_PAUSE)
+      registry.handleLifecycleEvent(androidx.lifecycle.Lifecycle.Event.ON_RESUME)
+    }
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("grant_install_permission_button").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("grant_relaunch_permission_button").assertDoesNotExist()
+    composeTestRule.onNodeWithText(updatesSentence).assertIsDisplayed()
+
+    // 4. Both granted: helper text and both permission buttons disappear completely
+    org.robolectric.Shadows.shadowOf(context.packageManager).setCanRequestPackageInstalls(true)
+    composeTestRule.runOnUiThread {
+      registry.handleLifecycleEvent(androidx.lifecycle.Lifecycle.Event.ON_PAUSE)
+      registry.handleLifecycleEvent(androidx.lifecycle.Lifecycle.Event.ON_RESUME)
+    }
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("grant_install_permission_button").assertDoesNotExist()
+    composeTestRule.onNodeWithTag("grant_relaunch_permission_button").assertDoesNotExist()
+    composeTestRule.onNodeWithTag("update_permissions_helper_text").assertDoesNotExist()
+  }
+
+  @Test
+  fun `package replaced receiver launches MainActivity only for valid non-expired in-app updates`() {
+    val app = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.app.Application>()
+    val receiver = com.example.data.update.AppPackageReplacedReceiver()
+
+    // Unrelated update (no pending marker) must not launch MainActivity
+    com.example.data.update.AppUpdateManager.clearPendingUpdateRelaunch(app)
+    receiver.onReceive(app, android.content.Intent(android.content.Intent.ACTION_MY_PACKAGE_REPLACED))
+    org.junit.Assert.assertNull(org.robolectric.Shadows.shadowOf(app).nextStartedActivity)
+
+    // Expired marker (>10 min) must not launch MainActivity
+    com.example.data.update.AppUpdateManager.markPendingUpdateRelaunch(
+      context = app,
+      targetVersion = "1.12",
+      nowMs = System.currentTimeMillis() - (com.example.data.update.AppUpdateManager.PENDING_RELAUNCH_TTL_MS + 5_000L),
+    )
+    receiver.onReceive(app, android.content.Intent(android.content.Intent.ACTION_MY_PACKAGE_REPLACED))
+    org.junit.Assert.assertNull(org.robolectric.Shadows.shadowOf(app).nextStartedActivity)
+
+    // Valid recent update marker triggers one-shot relaunch of MainActivity with version extra
+    com.example.data.update.AppUpdateManager.markPendingUpdateRelaunch(
+      context = app,
+      targetVersion = "1.12",
+    )
+    receiver.onReceive(app, android.content.Intent(android.content.Intent.ACTION_MY_PACKAGE_REPLACED))
+    val launched = org.robolectric.Shadows.shadowOf(app).nextStartedActivity
+    org.junit.Assert.assertNotNull(launched)
+    org.junit.Assert.assertEquals(MainActivity::class.java.name, launched.component?.className)
+    org.junit.Assert.assertEquals(
+      "1.12",
+      launched.getStringExtra(com.example.data.update.AppUpdateManager.EXTRA_RELAUNCHED_FROM_UPDATE_VERSION),
+    )
+
+    // Subsequent duplicate broadcast must not launch again (one-shot consumption)
+    receiver.onReceive(app, android.content.Intent(android.content.Intent.ACTION_MY_PACKAGE_REPLACED))
+    org.junit.Assert.assertNull(org.robolectric.Shadows.shadowOf(app).nextStartedActivity)
   }
 }

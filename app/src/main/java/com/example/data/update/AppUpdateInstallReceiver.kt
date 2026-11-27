@@ -19,6 +19,7 @@ class AppUpdateInstallReceiver : BroadcastReceiver() {
           confirmIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
           runCatching { context.startActivity(confirmIntent) }
             .onFailure { err ->
+              AppUpdateManager.clearPendingUpdateRelaunch(context)
               AppUpdateManager.reportInstallStatus(
                 AppUpdateInstallStatus.Failed(
                   err.localizedMessage ?: "Unable to open Android update confirmation."
@@ -26,6 +27,7 @@ class AppUpdateInstallReceiver : BroadcastReceiver() {
               )
             }
         } else {
+          AppUpdateManager.clearPendingUpdateRelaunch(context)
           AppUpdateManager.reportInstallStatus(
             AppUpdateInstallStatus.Failed("Missing confirmation prompt from Android installer.")
           )
@@ -35,6 +37,7 @@ class AppUpdateInstallReceiver : BroadcastReceiver() {
         AppUpdateManager.reportInstallStatus(AppUpdateInstallStatus.Succeeded)
       }
       else -> {
+        AppUpdateManager.clearPendingUpdateRelaunch(context)
         AppUpdateManager.reportInstallStatus(
           AppUpdateInstallStatus.Failed(formatInstallFailureMessage(status, rawMessage))
         )

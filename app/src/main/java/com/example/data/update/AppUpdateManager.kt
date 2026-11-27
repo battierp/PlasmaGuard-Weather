@@ -10,6 +10,7 @@ import android.content.pm.Signature
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import android.widget.Toast
 import androidx.core.content.FileProvider
 import androidx.core.content.pm.PackageInfoCompat
 import com.example.BuildConfig
@@ -43,6 +44,8 @@ sealed interface AppUpdateInstallStatus {
   data class Failed(val message: String) : AppUpdateInstallStatus
 }
 
+data class PendingUpdateRelaunch(val versionLabel: String)
+
 internal fun formatInstallFailureMessage(status: Int, statusMessage: String): String {
   val normalized = statusMessage.uppercase()
   return when {
@@ -71,6 +74,11 @@ object AppUpdateManager {
   private const val UPDATES_DIR_NAME = "updates"
   private const val APK_MIME_TYPE = "application/vnd.android.package-archive"
   private const val INSTALL_CALLBACK_REQUEST_CODE = 4207
+  private const val UPDATE_PREFS_NAME = "plasmasky_update_prefs"
+  private const val KEY_PENDING_RELAUNCH_AT_MS = "pending_update_relaunch_at_ms"
+  private const val KEY_PENDING_RELAUNCH_VERSION = "pending_update_relaunch_version"
+  internal const val PENDING_RELAUNCH_TTL_MS = 10L * 60L * 1000L
+  const val EXTRA_RELAUNCHED_FROM_UPDATE_VERSION = "relaunch_updated_version"
 
   private val _installStatus = MutableStateFlow<AppUpdateInstallStatus>(AppUpdateInstallStatus.Idle)
   val installStatus: StateFlow<AppUpdateInstallStatus> = _installStatus.asStateFlow()
@@ -111,6 +119,85 @@ object AppUpdateManager {
         ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
       context.startActivity(appDetailsIntent)
     }
+
+  fun requiresOverlayPermissionForRelaunch(): Boolean =
+    Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+
+  fun canAutoRelaunchAfterUpdate(context: Context): Boolean =
+    !requiresOverlayPermissionForRelaunch() || Settings.canDrawOverlays(context)
+
+  fun createOverlayPermissionIntent(context: Context): Intent =
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+      Intent(
+        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+        Uri.parse("package:${context.packageName}"),
+      ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    } else {
+      Intent(
+        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+        Uri.parse("package:${context.packageName}"),
+      ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+
+  fun openOverlayPermissionSettings(context: Context): Result<Unit> =
+    runCatching {
+      context.startActivity(createOverlayPermissionIntent(context))
+    }.recoverCatching {
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        context.startActivity(
+          Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
+      } else {
+        throw it
+      }
+    }.recoverCatching {
+      val appDetailsIntent =
+        Intent(
+          Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+          Uri.parse("package:${context.packageName}"),
+        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+      context.startActivity(appDetailsIntent)
+    }
+
+  internal fun markPendingUpdateRelaunch(
+    context: Context,
+    targetVersion: String,
+    nowMs: Long = System.currentTimeMillis(),
+  ) {
+    context
+      .getSharedPreferences(UPDATE_PREFS_NAME, Context.MODE_PRIVATE)
+      .edit()
+      .putLong(KEY_PENDING_RELAUNCH_AT_MS, nowMs)
+      .putString(KEY_PENDING_RELAUNCH_VERSION, targetVersion.trim())
+      .commit()
+  }
+
+  internal fun clearPendingUpdateRelaunch(context: Context) {
+    context
+      .getSharedPreferences(UPDATE_PREFS_NAME, Context.MODE_PRIVATE)
+      .edit()
+      .remove(KEY_PENDING_RELAUNCH_AT_MS)
+      .remove(KEY_PENDING_RELAUNCH_VERSION)
+      .commit()
+  }
+
+  internal fun consumePendingUpdateRelaunchIfValid(
+    context: Context,
+    nowMs: Long = System.currentTimeMillis(),
+  ): PendingUpdateRelaunch? {
+    val prefs = context.getSharedPreferences(UPDATE_PREFS_NAME, Context.MODE_PRIVATE)
+    val markedAtMs = prefs.getLong(KEY_PENDING_RELAUNCH_AT_MS, 0L)
+    val versionLabel = prefs.getString(KEY_PENDING_RELAUNCH_VERSION, "").orEmpty().trim()
+    prefs
+      .edit()
+      .remove(KEY_PENDING_RELAUNCH_AT_MS)
+      .remove(KEY_PENDING_RELAUNCH_VERSION)
+      .commit()
+    if (markedAtMs <= 0L || nowMs < markedAtMs) return null
+    if (nowMs - markedAtMs > PENDING_RELAUNCH_TTL_MS) return null
+    return PendingUpdateRelaunch(versionLabel = versionLabel)
+  }
 
   fun verifyApkCompatibility(context: Context, apkFile: File): ApkCompatibilityResult {
     if (!hasZipApkHeader(apkFile)) {
@@ -173,13 +260,28 @@ object AppUpdateManager {
     return ApkCompatibilityResult.Compatible
   }
 
-  suspend fun installApkInApp(context: Context, apkFile: File): Result<Unit> =
+  suspend fun installApkInApp(
+    context: Context,
+    apkFile: File,
+    targetVersion: String = "",
+  ): Result<Unit> =
     withContext(Dispatchers.IO) {
       runCatching {
         require(apkFile.exists() && apkFile.length() > 0L) {
           "Downloaded update file is missing."
         }
         _installStatus.value = AppUpdateInstallStatus.Installing
+        markPendingUpdateRelaunch(context, targetVersion)
+
+        if (!canAutoRelaunchAfterUpdate(context)) {
+          withContext(Dispatchers.Main) {
+            Toast.makeText(
+              context.applicationContext,
+              "PlasmaSky will close to apply the update. Reopen PlasmaSky once it finishes.",
+              Toast.LENGTH_LONG,
+            ).show()
+          }
+        }
 
         val sessionInstallResult = runCatching { installViaPackageInstallerSession(context, apkFile) }
         if (sessionInstallResult.isFailure) {
@@ -190,6 +292,7 @@ object AppUpdateManager {
           _installStatus.value = AppUpdateInstallStatus.Idle
         }
       }.onFailure { err ->
+        clearPendingUpdateRelaunch(context)
         _installStatus.value =
           AppUpdateInstallStatus.Failed(
             err.localizedMessage ?: "Unable to start Android package installer."

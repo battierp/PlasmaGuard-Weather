@@ -893,15 +893,20 @@ fun SettingsOverlay(
         val checkUpdateFocusRequester = remember { FocusRequester() }
         val downloadUpdateFocusRequester = remember { FocusRequester() }
         val grantPermissionFocusRequester = remember { FocusRequester() }
+        val grantRelaunchFocusRequester = remember { FocusRequester() }
         val installApkFocusRequester = remember { FocusRequester() }
         var canInstallUnknownApps by remember {
           mutableStateOf(AppUpdateManager.canRequestPackageInstalls(context))
+        }
+        var canAutoRelaunch by remember {
+          mutableStateOf(AppUpdateManager.canAutoRelaunchAfterUpdate(context))
         }
         val lifecycleOwner = LocalLifecycleOwner.current
         DisposableEffect(lifecycleOwner, context) {
           val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
               canInstallUnknownApps = AppUpdateManager.canRequestPackageInstalls(context)
+              canAutoRelaunch = AppUpdateManager.canAutoRelaunchAfterUpdate(context)
             }
           }
           lifecycleOwner.lifecycle.addObserver(observer)
@@ -918,27 +923,33 @@ fun SettingsOverlay(
             onConsumeAutoInstallLaunch()
             AppUpdateManager.clearInstallStatus()
             updateCoroutineScope.launch {
-              AppUpdateManager.installApkInApp(context, appUpdateState.apkFile).onFailure { err ->
-                installActionError =
-                  err.localizedMessage ?: "Unable to start Android package installer."
-              }
+              AppUpdateManager.installApkInApp(
+                  context = context,
+                  apkFile = appUpdateState.apkFile,
+                  targetVersion = appUpdateState.latestVersion,
+                )
+                .onFailure { err ->
+                  installActionError =
+                    err.localizedMessage ?: "Unable to start Android package installer."
+                }
             }
           }
         }
 
+        val permissionKey = "${canInstallUnknownApps}_$canAutoRelaunch"
         val updateFocusPhase =
           when (appUpdateState) {
-            is AppUpdateUiState.Idle -> "idle_$canInstallUnknownApps"
-            is AppUpdateUiState.Checking -> "checking_$canInstallUnknownApps"
-            is AppUpdateUiState.UpToDate -> "up_to_date_$canInstallUnknownApps"
+            is AppUpdateUiState.Idle -> "idle_$permissionKey"
+            is AppUpdateUiState.Checking -> "checking_$permissionKey"
+            is AppUpdateUiState.UpToDate -> "up_to_date_$permissionKey"
             is AppUpdateUiState.UpdateAvailable ->
-              "available_${appUpdateState.latestVersion}_$canInstallUnknownApps"
+              "available_${appUpdateState.latestVersion}_$permissionKey"
             is AppUpdateUiState.Downloading ->
-              "downloading_${appUpdateState.latestVersion}_$canInstallUnknownApps"
+              "downloading_${appUpdateState.latestVersion}_$permissionKey"
             is AppUpdateUiState.ReadyToInstall ->
-              "ready_${appUpdateState.latestVersion}_$canInstallUnknownApps"
-            is AppUpdateUiState.Error -> "error_$canInstallUnknownApps"
-            is AppUpdateUiState.RepoNotConfigured -> "unconfigured_$canInstallUnknownApps"
+              "ready_${appUpdateState.latestVersion}_$permissionKey"
+            is AppUpdateUiState.Error -> "error_$permissionKey"
+            is AppUpdateUiState.RepoNotConfigured -> "unconfigured_$permissionKey"
           }
 
         LaunchedEffect(updateFocusPhase, keepFocusInUpdates) {
@@ -993,19 +1004,11 @@ fun SettingsOverlay(
             val statusLine =
               when (appUpdateState) {
                 is AppUpdateUiState.Idle ->
-                  if (canInstallUnknownApps) {
-                    "Check GitHub Releases to download and install updates in-app."
-                  } else {
-                    "Grant permission to PlasmaSky to enable updating from within the app directly."
-                  }
+                  "Check GitHub Releases to download and install updates in-app."
                 is AppUpdateUiState.Checking ->
                   "Checking GitHub Releases..."
                 is AppUpdateUiState.UpToDate ->
-                  if (canInstallUnknownApps) {
-                    "You are up to date (v${appUpdateState.currentVersion})."
-                  } else {
-                    "You are up to date (v${appUpdateState.currentVersion}). Grant permission to PlasmaSky to enable updating from within the app directly."
-                  }
+                  "You are up to date (v${appUpdateState.currentVersion})."
                 is AppUpdateUiState.UpdateAvailable ->
                   "New version ready: v${appUpdateState.latestVersion}"
                 is AppUpdateUiState.Downloading -> {
@@ -1028,7 +1031,11 @@ fun SettingsOverlay(
                 is AppUpdateUiState.ReadyToInstall ->
                   when {
                     installStatus is AppUpdateInstallStatus.Installing ->
-                      "Installing v${appUpdateState.latestVersion}..."
+                      if (canAutoRelaunch) {
+                        "Installing v${appUpdateState.latestVersion}... PlasmaSky will close briefly and relaunch."
+                      } else {
+                        "Installing v${appUpdateState.latestVersion}... PlasmaSky will close while Android finishes updating—reopen it afterward."
+                      }
                     installStatus is AppUpdateInstallStatus.Failed ->
                       (installStatus as AppUpdateInstallStatus.Failed).message
                     appUpdateState.incompatibilityReason != null ->
@@ -1036,13 +1043,29 @@ fun SettingsOverlay(
                     canInstallUnknownApps ->
                       "v${appUpdateState.latestVersion} downloaded and ready to install."
                     else ->
-                      "v${appUpdateState.latestVersion} downloaded. Grant permission to PlasmaSky to enable updating from within the app directly."
+                      "v${appUpdateState.latestVersion} downloaded. Tap Allow Updates below to install."
                   }
                 is AppUpdateUiState.Error ->
                   appUpdateState.message
                 is AppUpdateUiState.RepoNotConfigured ->
                   "In-app updates are enabled on APKs built by GitHub Actions."
               }
+
+            val permissionHelperText =
+              listOfNotNull(
+                  if (!canInstallUnknownApps) {
+                    "Allow Updates lets PlasmaSky install releases directly from inside the app."
+                  } else {
+                    null
+                  },
+                  if (!canAutoRelaunch) {
+                    "Allow Auto-Relaunch lets PlasmaSky reopen automatically after an update instead of closing until you launch it manually."
+                  } else {
+                    null
+                  },
+                )
+                .joinToString(" ")
+                .ifBlank { null }
 
             val receiverError = (installStatus as? AppUpdateInstallStatus.Failed)?.message
             Text(
@@ -1065,6 +1088,15 @@ fun SettingsOverlay(
                   else -> MutedSlateText
                 },
             )
+
+            if (permissionHelperText != null) {
+              Text(
+                text = permissionHelperText,
+                style = MaterialTheme.typography.bodySmall,
+                color = BrightGold,
+                modifier = Modifier.testTag("update_permissions_helper_text"),
+              )
+            }
 
             if (appUpdateState is AppUpdateUiState.Downloading) {
               if (appUpdateState.totalBytes > 0L) {
@@ -1228,7 +1260,55 @@ fun SettingsOverlay(
                   )
                   Spacer(modifier = Modifier.width(6.dp))
                   Text(
-                    text = "Grant Permission",
+                    text = "Allow Updates",
+                    fontWeight = FontWeight.SemiBold,
+                  )
+                }
+              }
+
+              if (!canAutoRelaunch) {
+                var relaunchFocused by remember { mutableStateOf(false) }
+                val relaunchScale by animateFloatAsState(
+                  targetValue = if (relaunchFocused) 1.05f else 1f,
+                  label = "perm_relaunch_scale",
+                )
+                OutlinedButton(
+                  onClick = {
+                    keepFocusInUpdates = true
+                    installActionError = null
+                    AppUpdateManager.openOverlayPermissionSettings(context).onFailure { err ->
+                      installActionError =
+                        err.localizedMessage ?: "Unable to open Display Over Other Apps settings."
+                    }
+                  },
+                  modifier =
+                    Modifier.scale(relaunchScale)
+                      .minimumInteractiveComponentSize()
+                      .focusRequester(grantRelaunchFocusRequester)
+                      .onFocusChanged { relaunchFocused = it.isFocused || it.hasFocus }
+                      .testTag("grant_relaunch_permission_button"),
+                  shape = RoundedCornerShape(14.dp),
+                  border =
+                    BorderStroke(
+                      width = if (relaunchFocused) 3.dp else 1.5.dp,
+                      color = if (relaunchFocused) BrightGold else BrightGold.copy(alpha = 0.7f),
+                    ),
+                  colors =
+                    ButtonDefaults.outlinedButtonColors(
+                      containerColor =
+                        if (relaunchFocused) lerp(DeepCardSurface, BrightGold, 0.16f) else Color.Transparent,
+                    ),
+                ) {
+                  Icon(
+                    imageVector = Icons.Rounded.Refresh,
+                    contentDescription = null,
+                    tint = BrightGold,
+                    modifier = Modifier.size(18.dp),
+                  )
+                  Spacer(modifier = Modifier.width(6.dp))
+                  Text(
+                    text = "Allow Auto-Relaunch",
+                    color = SoftFrostText,
                     fontWeight = FontWeight.SemiBold,
                   )
                 }
@@ -1246,7 +1326,11 @@ fun SettingsOverlay(
                         installActionError = null
                         AppUpdateManager.clearInstallStatus()
                         updateCoroutineScope.launch {
-                          AppUpdateManager.installApkInApp(context, appUpdateState.apkFile)
+                          AppUpdateManager.installApkInApp(
+                              context = context,
+                              apkFile = appUpdateState.apkFile,
+                              targetVersion = appUpdateState.latestVersion,
+                            )
                             .onFailure { err ->
                               installActionError =
                                 err.localizedMessage ?: "Unable to start Android package installer."
