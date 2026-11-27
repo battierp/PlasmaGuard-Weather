@@ -883,6 +883,11 @@ fun SettingsOverlay(
         // App Updates (very last setting at the bottom)
         val installedVersion = normalizeVersionTag(BuildConfig.VERSION_NAME).ifBlank { "1.01" }
         var installActionError by remember(appUpdateState) { mutableStateOf<String?>(null) }
+        var keepFocusInUpdates by remember { mutableStateOf(false) }
+        val checkUpdateFocusRequester = remember { FocusRequester() }
+        val downloadUpdateFocusRequester = remember { FocusRequester() }
+        val grantPermissionFocusRequester = remember { FocusRequester() }
+        val installApkFocusRequester = remember { FocusRequester() }
         var canInstallUnknownApps by remember {
           mutableStateOf(AppUpdateManager.canRequestPackageInstalls(context))
         }
@@ -906,6 +911,36 @@ fun SettingsOverlay(
             onConsumeAutoInstallLaunch()
             AppUpdateManager.launchApkInstall(context, appUpdateState.apkFile).onFailure { err ->
               installActionError = err.localizedMessage ?: "Unable to launch package installer."
+            }
+          }
+        }
+
+        LaunchedEffect(appUpdateState, canInstallUnknownApps, keepFocusInUpdates) {
+          if (!keepFocusInUpdates) return@LaunchedEffect
+          withFrameNanos {}
+          when (appUpdateState) {
+            is AppUpdateUiState.Checking,
+            is AppUpdateUiState.Downloading -> {
+              runCatching { checkUpdateFocusRequester.requestFocus() }
+            }
+            is AppUpdateUiState.UpdateAvailable -> {
+              runCatching { downloadUpdateFocusRequester.requestFocus() }
+              keepFocusInUpdates = false
+            }
+            is AppUpdateUiState.ReadyToInstall -> {
+              val targetRequester =
+                if (canInstallUnknownApps) installApkFocusRequester else grantPermissionFocusRequester
+              runCatching { targetRequester.requestFocus() }
+              keepFocusInUpdates = false
+            }
+            is AppUpdateUiState.UpToDate,
+            is AppUpdateUiState.Error,
+            is AppUpdateUiState.RepoNotConfigured -> {
+              runCatching { checkUpdateFocusRequester.requestFocus() }
+              keepFocusInUpdates = false
+            }
+            is AppUpdateUiState.Idle -> {
+              keepFocusInUpdates = false
             }
           }
         }
@@ -1027,13 +1062,16 @@ fun SettingsOverlay(
               )
               OutlinedButton(
                 onClick = {
-                  installActionError = null
-                  onCheckForAppUpdate()
+                  if (!isBusy) {
+                    keepFocusInUpdates = true
+                    installActionError = null
+                    onCheckForAppUpdate()
+                  }
                 },
-                enabled = !isBusy,
                 modifier =
                   Modifier.scale(checkScale)
                     .minimumInteractiveComponentSize()
+                    .focusRequester(checkUpdateFocusRequester)
                     .onFocusChanged { checkFocused = it.isFocused || it.hasFocus }
                     .testTag("check_app_update_button"),
                 shape = RoundedCornerShape(14.dp),
@@ -1082,6 +1120,7 @@ fun SettingsOverlay(
                 )
                 Button(
                   onClick = {
+                    keepFocusInUpdates = true
                     installActionError = null
                     onDownloadAndInstallUpdate(
                       appUpdateState.latestVersion,
@@ -1091,6 +1130,7 @@ fun SettingsOverlay(
                   modifier =
                     Modifier.scale(installNowScale)
                       .minimumInteractiveComponentSize()
+                      .focusRequester(downloadUpdateFocusRequester)
                       .onFocusChanged { installNowFocused = it.isFocused || it.hasFocus }
                       .testTag("download_install_update_button"),
                   shape = RoundedCornerShape(14.dp),
@@ -1123,6 +1163,7 @@ fun SettingsOverlay(
                   )
                   Button(
                     onClick = {
+                      keepFocusInUpdates = true
                       installActionError = null
                       runCatching {
                         context.startActivity(
@@ -1136,6 +1177,7 @@ fun SettingsOverlay(
                     modifier =
                       Modifier.scale(permScale)
                         .minimumInteractiveComponentSize()
+                        .focusRequester(grantPermissionFocusRequester)
                         .onFocusChanged { permFocused = it.isFocused || it.hasFocus }
                         .testTag("grant_install_permission_button"),
                     shape = RoundedCornerShape(14.dp),
@@ -1168,6 +1210,7 @@ fun SettingsOverlay(
                     modifier =
                       Modifier.scale(installScale)
                         .minimumInteractiveComponentSize()
+                        .focusRequester(installApkFocusRequester)
                         .onFocusChanged { installFocused = it.isFocused || it.hasFocus }
                         .testTag("install_downloaded_apk_button"),
                     shape = RoundedCornerShape(14.dp),
