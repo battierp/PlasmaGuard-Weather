@@ -959,10 +959,13 @@ fun SettingsOverlay(
                   }
                 }
                 is AppUpdateUiState.ReadyToInstall ->
-                  if (canInstallUnknownApps) {
-                    "v${appUpdateState.latestVersion} downloaded and ready to install."
-                  } else {
-                    "v${appUpdateState.latestVersion} downloaded. Allow PlasmaSky to install updates in Android Settings, then press Install."
+                  when {
+                    appUpdateState.incompatibilityReason != null ->
+                      appUpdateState.incompatibilityReason
+                    canInstallUnknownApps ->
+                      "v${appUpdateState.latestVersion} downloaded and ready to install."
+                    else ->
+                      "v${appUpdateState.latestVersion} downloaded. Allow PlasmaSky to install updates in Android Settings, then press Install."
                   }
                 is AppUpdateUiState.Error ->
                   appUpdateState.message
@@ -979,7 +982,11 @@ fun SettingsOverlay(
                   appUpdateState is AppUpdateUiState.UpdateAvailable -> BrightGold
                   appUpdateState is AppUpdateUiState.Downloading -> accentColor
                   appUpdateState is AppUpdateUiState.ReadyToInstall ->
-                    if (canInstallUnknownApps) SeafoamTeal else BrightGold
+                    when {
+                      appUpdateState.incompatibilityReason != null -> BrightCoral
+                      canInstallUnknownApps -> SeafoamTeal
+                      else -> BrightGold
+                    }
                   appUpdateState is AppUpdateUiState.Error -> BrightCoral
                   appUpdateState is AppUpdateUiState.UpToDate -> SeafoamTeal
                   else -> MutedSlateText
@@ -1178,7 +1185,12 @@ fun SettingsOverlay(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                      text = "Install v${appUpdateState.latestVersion}",
+                      text =
+                        if (appUpdateState.incompatibilityReason != null) {
+                          "Try Install Anyway"
+                        } else {
+                          "Install v${appUpdateState.latestVersion}"
+                        },
                       fontWeight = FontWeight.SemiBold,
                     )
                   }

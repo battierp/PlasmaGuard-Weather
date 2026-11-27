@@ -49,10 +49,18 @@ jobs:
           fi
 
       - name: Prepare debug signing keystore
+        id: keystore
+        env:
+          SIGNING_KEYSTORE_BASE64: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
         run: |
-          if [ -f debug.keystore.base64 ]; then
-            base64 -d debug.keystore.base64 > debug.keystore
+          if [ -n "$SIGNING_KEYSTORE_BASE64" ]; then
+            printf '%s' "$SIGNING_KEYSTORE_BASE64" | tr -d '\r\n[:space:]' | base64 -d > debug.keystore
+            echo "mode=persistent_secret" >> "$GITHUB_OUTPUT"
+          elif [ -f debug.keystore.base64 ] && [ -s debug.keystore.base64 ]; then
+            tr -d '\r\n[:space:]' < debug.keystore.base64 | base64 -d > debug.keystore
+            echo "mode=persistent_repo" >> "$GITHUB_OUTPUT"
           elif [ ! -f debug.keystore ]; then
+            echo "::warning::No debug.keystore.base64 or SIGNING_KEYSTORE_BASE64 secret found. Generating an ephemeral signing key — APKs signed with different keys cannot update in-place ('App not installed')."
             keytool -genkeypair -v \
               -keystore debug.keystore \
               -storepass android \
@@ -62,7 +70,20 @@ jobs:
               -keysize 2048 \
               -validity 10000 \
               -dname "CN=Android Debug,O=Android,C=US"
+            echo "mode=ephemeral" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=existing_file" >> "$GITHUB_OUTPUT"
           fi
+
+          CERT_SHA256=$(keytool -list -v -keystore debug.keystore -storepass android -alias androiddebugkey \
+            | awk '/SHA256:/ {print $2; exit}')
+          if [ -z "$CERT_SHA256" ]; then
+            echo "Failed to read signing certificate from debug.keystore"
+            exit 1
+          fi
+          echo "sha256=$CERT_SHA256" >> "$GITHUB_OUTPUT"
+          echo "Signing keystore mode: $(grep '^mode=' "$GITHUB_OUTPUT" | cut -d= -f2)"
+          echo "Signing certificate SHA-256: $CERT_SHA256"
 
       - name: Determine release version
         id: version
@@ -112,10 +133,13 @@ jobs:
           name: PlasmaSky v${{ steps.version.outputs.version_name }}
           target_commitish: ${{ github.sha }}
           body: |
-            Automated Android TV / Android build of **PlasmaSky v${{ steps.version.outputs.version_name }}**.
+            Automated Android TV / Android build of **PlasmaSky v${{ steps.version.outputs.version_name }}** (`versionCode` ${{ steps.version.outputs.version_code }}).
 
             ### Easy Install
             Download **`PlasmaSky-v${{ steps.version.outputs.version_name }}.apk`** below and open/sideload it on your Android TV or Android device.
+            If updating from an older build signed with a different key results in `"App not installed"`, uninstall the old version once and install this release cleanly.
+
+            Signing certificate (`SHA-256`, mode `${{ steps.keystore.outputs.mode }}`): `${{ steps.keystore.outputs.sha256 }}`
           files: dist/PlasmaSky-v${{ steps.version.outputs.version_name }}.apk
           make_latest: "true"
         env:

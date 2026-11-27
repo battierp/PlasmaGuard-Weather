@@ -19,6 +19,7 @@ import com.example.data.model.normalizeCityAutocompleteQuery
 import com.example.data.model.normalizeVersionTag
 import com.example.data.remote.NetworkModule
 import com.example.data.repository.WeatherRepository
+import com.example.data.update.ApkCompatibilityResult
 import com.example.data.update.AppUpdateManager
 import java.io.File
 import java.text.SimpleDateFormat
@@ -76,6 +77,7 @@ sealed interface AppUpdateUiState {
     val latestVersion: String,
     val apkFile: File,
     val autoLaunchInstall: Boolean = true,
+    val incompatibilityReason: String? = null,
   ) : AppUpdateUiState
   data class Error(val message: String) : AppUpdateUiState
   data object RepoNotConfigured : AppUpdateUiState
@@ -472,11 +474,15 @@ class ScreensaverViewModel(application: Application) : AndroidViewModel(applicat
               )
           }
         }.onSuccess { apkFile ->
+          val compatibility = AppUpdateManager.verifyApkCompatibility(getApplication(), apkFile)
+          val incompatibilityReason =
+            (compatibility as? ApkCompatibilityResult.Incompatible)?.reason
           _appUpdateState.value =
             AppUpdateUiState.ReadyToInstall(
               latestVersion = latestVersion,
               apkFile = apkFile,
-              autoLaunchInstall = true,
+              autoLaunchInstall = incompatibilityReason == null,
+              incompatibilityReason = incompatibilityReason,
             )
         }.onFailure { error ->
           _appUpdateState.value =

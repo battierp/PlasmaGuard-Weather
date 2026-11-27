@@ -2,19 +2,30 @@ package com.example.data.update
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageInfo
+import android.content.pm.PackageManager
+import android.content.pm.Signature
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import androidx.core.content.FileProvider
+import androidx.core.content.pm.PackageInfoCompat
 import com.example.BuildConfig
 import com.example.data.remote.NetworkModule
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.security.MessageDigest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import okhttp3.Request
+
+sealed interface ApkCompatibilityResult {
+  data object Compatible : ApkCompatibilityResult
+
+  data class Incompatible(val reason: String) : ApkCompatibilityResult
+}
 
 object AppUpdateManager {
   private const val UPDATES_DIR_NAME = "updates"
@@ -36,6 +47,65 @@ object AppUpdateManager {
     } else {
       Intent(Settings.ACTION_SECURITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }
+
+  fun verifyApkCompatibility(context: Context, apkFile: File): ApkCompatibilityResult {
+    if (!hasZipApkHeader(apkFile)) {
+      return ApkCompatibilityResult.Incompatible(
+        "Downloaded file is not a valid Android APK package."
+      )
+    }
+
+    val pm = context.packageManager
+    val archiveInfo =
+      getArchiveInfoWithSigners(pm, apkFile.absolutePath)
+        ?: return ApkCompatibilityResult.Incompatible(
+          "Android could not parse the downloaded APK package."
+        )
+    val installedInfo = getInstalledInfoWithSigners(pm, context.packageName)
+
+    return checkPackageCompatibility(
+      installedPackageName = context.packageName,
+      installedVersionCode = installedInfo?.let { PackageInfoCompat.getLongVersionCode(it) },
+      installedSignerDigests = installedInfo?.let(::extractSignerSha256Digests).orEmpty(),
+      archivePackageName = archiveInfo.packageName,
+      archiveVersionCode = PackageInfoCompat.getLongVersionCode(archiveInfo),
+      archiveSignerDigests = extractSignerSha256Digests(archiveInfo),
+    )
+  }
+
+  internal fun checkPackageCompatibility(
+    installedPackageName: String,
+    installedVersionCode: Long?,
+    installedSignerDigests: Set<String>,
+    archivePackageName: String?,
+    archiveVersionCode: Long?,
+    archiveSignerDigests: Set<String>,
+  ): ApkCompatibilityResult {
+    if (!archivePackageName.isNullOrBlank() && archivePackageName != installedPackageName) {
+      return ApkCompatibilityResult.Incompatible(
+        "Update package ID ($archivePackageName) does not match installed app ($installedPackageName)."
+      )
+    }
+    if (
+      installedVersionCode != null &&
+        archiveVersionCode != null &&
+        archiveVersionCode < installedVersionCode
+    ) {
+      return ApkCompatibilityResult.Incompatible(
+        "Downloaded update build ($archiveVersionCode) is older than the installed build ($installedVersionCode)."
+      )
+    }
+    if (
+      installedSignerDigests.isNotEmpty() &&
+        archiveSignerDigests.isNotEmpty() &&
+        installedSignerDigests.intersect(archiveSignerDigests).isEmpty()
+    ) {
+      return ApkCompatibilityResult.Incompatible(
+        "Cannot install directly over the current version because their signing certificates don't match (which causes Android's 'App not installed' error). Uninstall PlasmaSky once, then install this release from GitHub Releases so future in-app updates work seamlessly."
+      )
+    }
+    return ApkCompatibilityResult.Compatible
+  }
 
   fun launchApkInstall(context: Context, apkFile: File): Result<Unit> =
     runCatching {
@@ -125,5 +195,55 @@ object AppUpdateManager {
       val b1 = stream.read()
       b0 == 0x50 && b1 == 0x4B
     }
+  }
+
+  private fun getInstalledInfoWithSigners(pm: PackageManager, packageName: String): PackageInfo? =
+    runCatching {
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        @Suppress("DEPRECATION")
+        pm.getPackageInfo(
+          packageName,
+          PackageManager.GET_SIGNING_CERTIFICATES or PackageManager.GET_SIGNATURES,
+        )
+      } else {
+        @Suppress("DEPRECATION")
+        pm.getPackageInfo(packageName, PackageManager.GET_SIGNATURES)
+      }
+    }.getOrNull()
+
+  private fun getArchiveInfoWithSigners(pm: PackageManager, apkPath: String): PackageInfo? =
+    runCatching {
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        @Suppress("DEPRECATION")
+        pm.getPackageArchiveInfo(
+          apkPath,
+          PackageManager.GET_SIGNING_CERTIFICATES or PackageManager.GET_SIGNATURES,
+        )
+      } else {
+        @Suppress("DEPRECATION")
+        pm.getPackageArchiveInfo(apkPath, PackageManager.GET_SIGNATURES)
+      }
+    }.getOrNull()
+
+  private fun extractSignerSha256Digests(info: PackageInfo): Set<String> {
+    val sigs = ArrayList<Signature>()
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+      info.signingInfo?.let { signingInfo ->
+        signingInfo.apkContentsSigners?.let { sigs.addAll(it) }
+        signingInfo.signingCertificateHistory?.let { sigs.addAll(it) }
+      }
+    }
+    if (sigs.isEmpty()) {
+      @Suppress("DEPRECATION")
+      info.signatures?.let { sigs.addAll(it) }
+    }
+    if (sigs.isEmpty()) return emptySet()
+
+    val digest = MessageDigest.getInstance("SHA-256")
+    return sigs
+      .map { signature ->
+        digest.digest(signature.toByteArray()).joinToString("") { byte -> "%02x".format(byte) }
+      }
+      .toSet()
   }
 }

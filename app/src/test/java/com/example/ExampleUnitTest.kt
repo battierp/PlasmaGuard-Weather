@@ -263,4 +263,46 @@ class ExampleUnitTest {
       invalidHtml.delete()
     }
   }
+
+  @Test
+  fun `apk compatibility check catches signing mismatch and version downgrades`() {
+    val compatible =
+      com.example.data.update.AppUpdateManager.checkPackageCompatibility(
+        installedPackageName = "com.aistudio.plasmasky.tvxmpq",
+        installedVersionCode = 101L,
+        installedSignerDigests = setOf("abc123"),
+        archivePackageName = "com.aistudio.plasmasky.tvxmpq",
+        archiveVersionCode = 103L,
+        archiveSignerDigests = setOf("abc123"),
+      )
+    assertEquals(com.example.data.update.ApkCompatibilityResult.Compatible, compatible)
+
+    val signatureMismatch =
+      com.example.data.update.AppUpdateManager.checkPackageCompatibility(
+        installedPackageName = "com.aistudio.plasmasky.tvxmpq",
+        installedVersionCode = 101L,
+        installedSignerDigests = setOf("abc123"),
+        archivePackageName = "com.aistudio.plasmasky.tvxmpq",
+        archiveVersionCode = 103L,
+        archiveSignerDigests = setOf("def456"),
+      )
+    assertTrue(
+      signatureMismatch is com.example.data.update.ApkCompatibilityResult.Incompatible &&
+        signatureMismatch.reason.contains("signing certificates", ignoreCase = true)
+    )
+
+    val downgrade =
+      com.example.data.update.AppUpdateManager.checkPackageCompatibility(
+        installedPackageName = "com.aistudio.plasmasky.tvxmpq",
+        installedVersionCode = 105L,
+        installedSignerDigests = setOf("abc123"),
+        archivePackageName = "com.aistudio.plasmasky.tvxmpq",
+        archiveVersionCode = 103L,
+        archiveSignerDigests = setOf("abc123"),
+      )
+    assertTrue(
+      downgrade is com.example.data.update.ApkCompatibilityResult.Incompatible &&
+        downgrade.reason.contains("older than", ignoreCase = true)
+    )
+  }
 }
