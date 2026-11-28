@@ -736,12 +736,17 @@ class ExampleRobolectricTest {
         .fetchSemanticsNode()
         .boundsInRoot
 
-    // Left column (Display Panels) sits strictly to the left of Right column (Motion Mode)
+    // Left column (Display Panels) sits strictly to the left of Right column (Units & Motion)
     val leftPanelBounds = boundsOf("toggle_7day_chip")
+    val unitBounds = boundsOf("unit_toggle_chip")
     val rightPanelBounds = boundsOf("motion_mode_clockwise_chip")
     assertTrue(
       "Expected two-column layout with left panel right=${leftPanelBounds.right} < right panel left=${rightPanelBounds.left}",
       leftPanelBounds.right < rightPanelBounds.left,
+    )
+    assertTrue(
+      "Expected Units & Clock in right column (${unitBounds.left} > ${leftPanelBounds.right}) above Motion Mode (${unitBounds.bottom} < ${rightPanelBounds.top})",
+      unitBounds.left > leftPanelBounds.right && unitBounds.bottom < rightPanelBounds.top,
     )
 
     // Bottom Bar 2x2 toggles have uniform equal widths and aligned rows
@@ -763,10 +768,23 @@ class ExampleRobolectricTest {
       assertEquals(driftBounds.first().width, b.width, 1.5f)
     }
 
-    // Refresh Weather and Resume Screensaver share exact row alignment and width
-    val refreshBounds = boundsOf("refresh_weather_button")
-    val resumeBounds = boundsOf("resume_screensaver_button")
+    // Refresh Weather and Resume Screensaver share exact row alignment and width, above App Updates
+    val checkUpdatesBounds = boundsOf("check_app_update_button")
+    val refreshBounds =
+      composeTestRule
+        .onNode(androidx.compose.ui.test.hasTestTag("refresh_weather_button"))
+        .fetchSemanticsNode()
+        .boundsInRoot
+    val resumeBounds =
+      composeTestRule
+        .onNode(androidx.compose.ui.test.hasTestTag("resume_screensaver_button"))
+        .fetchSemanticsNode()
+        .boundsInRoot
     assertEquals(refreshBounds.top, resumeBounds.top, 1f)
     assertEquals(refreshBounds.width, resumeBounds.width, 1f)
+    assertTrue(
+      "Expected Check for Updates (${checkUpdatesBounds.top}) below Resume Screensaver (${resumeBounds.bottom})",
+      checkUpdatesBounds.top > resumeBounds.bottom,
+    )
   }
 }

@@ -383,7 +383,12 @@ fun SettingsOverlay(
                 onToggleBottomBarWind = onToggleBottomBarWind,
                 onToggleBottomBarAirQuality = onToggleBottomBarAirQuality,
               )
+            }
 
+            Column(
+              modifier = Modifier.weight(1f),
+              verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
               UnitsAndClockSectionCard(
                 settings = settings,
                 accentColor = accentColor,
@@ -391,12 +396,7 @@ fun SettingsOverlay(
                 onSelectWindUnit = onSelectWindUnit,
                 onToggle24Hour = onToggle24Hour,
               )
-            }
 
-            Column(
-              modifier = Modifier.weight(1f),
-              verticalArrangement = Arrangement.spacedBy(14.dp),
-            ) {
               MotionAndShieldSectionCard(
                 settings = settings,
                 accentColor = accentColor,
@@ -410,14 +410,6 @@ fun SettingsOverlay(
                 onSelectTextColor = onSelectTextColor,
               )
 
-              AppUpdatesSectionCard(
-                accentColor = accentColor,
-                appUpdateState = appUpdateState,
-                onCheckForAppUpdate = onCheckForAppUpdate,
-                onDownloadAndInstallUpdate = onDownloadAndInstallUpdate,
-                onConsumeAutoInstallLaunch = onConsumeAutoInstallLaunch,
-              )
-
               QuickActionsRow(
                 accentColor = accentColor,
                 onRefreshWeather = onRefreshWeather,
@@ -425,6 +417,14 @@ fun SettingsOverlay(
                   keyboardController?.hide()
                   onDismiss()
                 },
+              )
+
+              AppUpdatesSectionCard(
+                accentColor = accentColor,
+                appUpdateState = appUpdateState,
+                onCheckForAppUpdate = onCheckForAppUpdate,
+                onDownloadAndInstallUpdate = onDownloadAndInstallUpdate,
+                onConsumeAutoInstallLaunch = onConsumeAutoInstallLaunch,
               )
             }
           }
@@ -1044,7 +1044,7 @@ private fun MotionAndShieldSectionCard(
 
     Text(
       text =
-        "Clockwise glides along outer edges (90%); DVD Bounce scales to 80% and rebounds.",
+        "Clockwise glides along the edges; DVD Bounce mimics the DVD logo bounce.",
       style = MaterialTheme.typography.labelSmall,
       color = SoftFrostText.copy(alpha = 0.72f),
     )
