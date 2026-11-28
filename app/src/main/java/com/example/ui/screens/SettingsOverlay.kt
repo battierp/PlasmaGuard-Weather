@@ -1044,7 +1044,7 @@ private fun MotionAndShieldSectionCard(
 
     Text(
       text =
-        "Clockwise glides along the edges; DVD Bounce mimics the DVD logo bounce.",
+        "Clockwise glides steadily around the screen perimeter; DVD Bounce drifts diagonally and rebounds off each edge.",
       style = MaterialTheme.typography.labelSmall,
       color = SoftFrostText.copy(alpha = 0.72f),
     )
