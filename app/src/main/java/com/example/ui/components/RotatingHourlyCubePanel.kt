@@ -49,6 +49,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -75,7 +77,10 @@ import java.util.Locale
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 enum class HourlyCubeFace(val title: String) {
   FORECAST_24H("24-HOUR FORECAST"),
@@ -98,9 +103,18 @@ fun resolveEnabledBottomBarFaces(
   }
 
 // 4 faces * (14,050ms hold + 950ms 3D roll) = 60,000ms (1 minute) full cycle
-private const val FACE_HOLD_DURATION_MS = 14_050L
-private const val CUBE_ROLL_DURATION_MS = 950
+internal const val FACE_HOLD_DURATION_MS = 14_050L
+internal const val CUBE_ROLL_DURATION_MS = 950
+internal const val MANUAL_CUBE_ROLL_DURATION_MS = 380
 private val CubeRollEasing = CubicBezierEasing(0.32f, 0.0f, 0.22f, 1.0f)
+
+internal fun computeFaceHoldDurationMs(doubleNextHold: Boolean): Long =
+  if (doubleNextHold) FACE_HOLD_DURATION_MS * 2L else FACE_HOLD_DURATION_MS
+
+internal fun computeTargetFaceIndex(currentIndex: Int, step: Int, count: Int): Int {
+  if (count <= 0) return 0
+  return (currentIndex + step).mod(count)
+}
 
 @Composable
 fun RotatingHourlyCubePanel(
@@ -111,41 +125,75 @@ fun RotatingHourlyCubePanel(
   isShortHeight: Boolean,
   expandHeight: Boolean,
   enabledFaces: List<HourlyCubeFace> = HourlyCubeFace.entries,
+  manualStepEvents: SharedFlow<Int>? = null,
   modifier: Modifier = Modifier,
 ) {
   if (enabledFaces.isEmpty()) return
 
   var currentFaceIndex by remember { mutableIntStateOf(0) }
   var nextFaceIndex by remember { mutableIntStateOf(if (enabledFaces.size > 1) 1 else 0) }
+  var rollDirection by remember { mutableIntStateOf(1) }
   var isAnimating by remember { mutableStateOf(false) }
   val rollProgress = remember { Animatable(0f) }
 
-  LaunchedEffect(enabledFaces) {
+  LaunchedEffect(enabledFaces, manualStepEvents) {
     rollProgress.snapTo(0f)
     Snapshot.withMutableSnapshot {
       isAnimating = false
+      rollDirection = 1
       currentFaceIndex = currentFaceIndex.coerceIn(0, enabledFaces.lastIndex)
       nextFaceIndex = (currentFaceIndex + 1) % enabledFaces.size
     }
     if (enabledFaces.size > 1) {
-      while (true) {
-        delay(FACE_HOLD_DURATION_MS)
-        val upcoming = (currentFaceIndex + 1) % enabledFaces.size
-        rollProgress.snapTo(0f)
-        Snapshot.withMutableSnapshot {
-          nextFaceIndex = upcoming
-          isAnimating = true
+      val stepChannel = Channel<Int>(capacity = Channel.UNLIMITED)
+      val collectorJob =
+        manualStepEvents?.let { flow ->
+          launch {
+            flow.collect { step ->
+              if (step != 0) stepChannel.trySend(step)
+            }
+          }
         }
-        rollProgress.animateTo(
-          targetValue = 1f,
-          animationSpec = tween(durationMillis = CUBE_ROLL_DURATION_MS, easing = CubeRollEasing),
-        )
-        Snapshot.withMutableSnapshot {
-          currentFaceIndex = upcoming
-          nextFaceIndex = (upcoming + 1) % enabledFaces.size
-          isAnimating = false
+      try {
+        var doubleNextHold = false
+        while (true) {
+          val holdMs = computeFaceHoldDurationMs(doubleNextHold = doubleNextHold)
+          doubleNextHold = false
+
+          val manualStep = withTimeoutOrNull(holdMs) { stepChannel.receive() }
+          val isManual = manualStep != null
+          val step = if ((manualStep ?: 1) < 0) -1 else 1
+          val upcoming = computeTargetFaceIndex(currentFaceIndex, step, enabledFaces.size)
+
+          if (isManual) {
+            doubleNextHold = true
+          }
+
+          rollProgress.snapTo(0f)
+          Snapshot.withMutableSnapshot {
+            nextFaceIndex = upcoming
+            rollDirection = step
+            isAnimating = true
+          }
+          rollProgress.animateTo(
+            targetValue = 1f,
+            animationSpec =
+              tween(
+                durationMillis = if (isManual) MANUAL_CUBE_ROLL_DURATION_MS else CUBE_ROLL_DURATION_MS,
+                easing = CubeRollEasing,
+              ),
+          )
+          Snapshot.withMutableSnapshot {
+            currentFaceIndex = upcoming
+            nextFaceIndex = (upcoming + 1) % enabledFaces.size
+            rollDirection = 1
+            isAnimating = false
+          }
+          rollProgress.snapTo(0f)
         }
-        rollProgress.snapTo(0f)
+      } finally {
+        collectorJob?.cancel()
+        stepChannel.close()
       }
     }
   }
@@ -157,7 +205,10 @@ fun RotatingHourlyCubePanel(
   val enabledCount = enabledFaces.size
 
   Box(
-    modifier = modifier.testTag("hourly_forecast_section"),
+    modifier =
+      modifier
+        .semantics { stateDescription = currentFace.title }
+        .testTag("hourly_forecast_section"),
   ) {
     enabledFaces.forEachIndexed { facePosition, entry ->
       val isCurrent = entry == currentFace
@@ -202,27 +253,41 @@ fun RotatingHourlyCubePanel(
                       else -> 0f
                     }
                 } else if (isCurrent) {
-                  val p = rollProgress.value.coerceIn(0f, 1f)
+                  val rawP = rollProgress.value.coerceIn(0f, 1f)
+                  val p = if (rollDirection >= 0) rawP else (1f - rawP)
                   val alphaRad = p * (PI.toFloat() / 2f)
                   val seamY = (h / 2f) * (1f - cos(alphaRad) + sin(alphaRad))
                   val protrude = (cos(alphaRad) + sin(alphaRad) - 1f).coerceAtLeast(0f)
                   val depthScale = 1f + 0.03f * protrude
-                  transformOrigin = TransformOrigin(0.5f, 0f)
-                  translationY = seamY
-                  rotationX = -p * 90f
+                  if (rollDirection >= 0) {
+                    transformOrigin = TransformOrigin(0.5f, 0f)
+                    translationY = seamY
+                    rotationX = -p * 90f
+                  } else {
+                    transformOrigin = TransformOrigin(0.5f, 1f)
+                    translationY = seamY - h
+                    rotationX = (1f - p) * 90f
+                  }
                   scaleX = depthScale
                   scaleY = depthScale
                   cameraDistance = 20f * density
-                  alpha = if (p >= 0.995f) 0f else 1f
+                  alpha = if (rawP >= 0.995f) 0f else 1f
                 } else if (isNext) {
-                  val p = rollProgress.value.coerceIn(0f, 1f)
+                  val rawP = rollProgress.value.coerceIn(0f, 1f)
+                  val p = if (rollDirection >= 0) rawP else (1f - rawP)
                   val alphaRad = p * (PI.toFloat() / 2f)
                   val seamY = (h / 2f) * (1f - cos(alphaRad) + sin(alphaRad))
                   val protrude = (cos(alphaRad) + sin(alphaRad) - 1f).coerceAtLeast(0f)
                   val depthScale = 1f + 0.03f * protrude
-                  transformOrigin = TransformOrigin(0.5f, 1f)
-                  translationY = seamY - h
-                  rotationX = (1f - p) * 90f
+                  if (rollDirection >= 0) {
+                    transformOrigin = TransformOrigin(0.5f, 1f)
+                    translationY = seamY - h
+                    rotationX = (1f - p) * 90f
+                  } else {
+                    transformOrigin = TransformOrigin(0.5f, 0f)
+                    translationY = seamY
+                    rotationX = -p * 90f
+                  }
                   scaleX = depthScale
                   scaleY = depthScale
                   cameraDistance = 20f * density
@@ -234,8 +299,8 @@ fun RotatingHourlyCubePanel(
               .drawWithContent {
                 drawContent()
                 if (isAnimating && (isCurrent || isNext)) {
-                  val p = rollProgress.value.coerceIn(0f, 1f)
-                  val alphaRad = p * (PI.toFloat() / 2f)
+                  val rawP = rollProgress.value.coerceIn(0f, 1f)
+                  val alphaRad = rawP * (PI.toFloat() / 2f)
                   val shadeAlpha =
                     if (isCurrent) (0.95f * sin(alphaRad)).coerceIn(0f, 1f)
                     else (0.95f * cos(alphaRad)).coerceIn(0f, 1f)

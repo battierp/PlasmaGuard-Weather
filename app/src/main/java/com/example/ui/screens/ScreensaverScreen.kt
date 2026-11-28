@@ -149,6 +149,8 @@ import com.example.ui.theme.SubtleOutline
 import java.util.Locale
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
 
 private enum class HeroScaleMode {
   STANDARD,
@@ -192,6 +194,7 @@ fun ScreensaverRoute(
   var showHintPill by remember { mutableStateOf(!isDreamMode) }
   var showSettingsButton by remember { mutableStateOf(!isDreamMode) }
   var settingsInteractionTick by remember { mutableIntStateOf(0) }
+  val bottomBarStepEvents = remember { MutableSharedFlow<Int>(extraBufferCapacity = 16) }
 
   val rootFocusRequester = remember { FocusRequester() }
   val settingsButtonFocusRequester = remember { FocusRequester() }
@@ -277,9 +280,17 @@ fun ScreensaverRoute(
                       }
                       true
                     }
-                    Key.DirectionUp,
+                    Key.DirectionUp -> {
+                      if (event.type == KeyEventType.KeyDown) {
+                        bottomBarStepEvents.tryEmit(-1)
+                        showSettingsButton = true
+                        settingsInteractionTick++
+                      }
+                      true
+                    }
                     Key.DirectionDown -> {
                       if (event.type == KeyEventType.KeyDown) {
+                        bottomBarStepEvents.tryEmit(1)
                         showSettingsButton = true
                         settingsInteractionTick++
                       }
@@ -361,6 +372,7 @@ fun ScreensaverRoute(
               clockDisplay = clockDisplay,
               plasma = plasma,
               forceTvWide = false,
+              bottomBarStepEvents = bottomBarStepEvents,
               onUpdateDriftBounds = { maxX, maxY ->
                 val next = maxX to maxY
                 if (dynamicDriftBounds != next) {
@@ -1115,6 +1127,7 @@ internal fun ScreensaverWeatherCanvas(
   clockDisplay: ClockDisplay,
   plasma: PlasmaShieldState,
   forceTvWide: Boolean,
+  bottomBarStepEvents: SharedFlow<Int>? = null,
   onUpdateDriftBounds: (Float, Float) -> Unit,
 ) {
   val showAlertsBanner = settings.showSevereWeatherAlerts && snapshot.alerts.isNotEmpty()
@@ -1286,6 +1299,7 @@ internal fun ScreensaverWeatherCanvas(
                   isShortHeight = isShortLandscape,
                   expandHeight = true,
                   enabledFaces = enabledBottomBarFaces,
+                  manualStepEvents = bottomBarStepEvents,
                   modifier = Modifier.weight(0.40f).fillMaxWidth(),
                 )
               }
@@ -1348,6 +1362,7 @@ internal fun ScreensaverWeatherCanvas(
                   isShortHeight = isShortLandscape,
                   expandHeight = true,
                   enabledFaces = enabledBottomBarFaces,
+                  manualStepEvents = bottomBarStepEvents,
                   modifier = Modifier.weight(0.38f).fillMaxWidth(),
                 )
               }
@@ -1393,6 +1408,7 @@ internal fun ScreensaverWeatherCanvas(
                     isShortHeight = false,
                     expandHeight = false,
                     enabledFaces = enabledBottomBarFaces,
+                    manualStepEvents = bottomBarStepEvents,
                     modifier = Modifier.fillMaxWidth(),
                   )
                 }
@@ -1454,6 +1470,7 @@ internal fun ScreensaverWeatherCanvas(
                     isShortHeight = false,
                     expandHeight = false,
                     enabledFaces = enabledBottomBarFaces,
+                    manualStepEvents = bottomBarStepEvents,
                     modifier = Modifier.fillMaxWidth(),
                   )
                 }

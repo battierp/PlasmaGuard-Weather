@@ -560,4 +560,213 @@ class ExampleRobolectricTest {
     // Touch check ensures option row renders cleanly
     assertTrue(rainbowBounceOption.fetchSemanticsNode().boundsInRoot.height > 0f)
   }
+
+  @Test
+  fun `manual up down bottom bar stepping rewinds skips and doubles hold duration only once`() {
+    val stepFlow = kotlinx.coroutines.flow.MutableSharedFlow<Int>(extraBufferCapacity = 16)
+    val offsetX = mutableFloatStateOf(0f)
+    val offsetY = mutableFloatStateOf(0f)
+    val plasma =
+      PlasmaShieldState(
+        initialColors =
+          PlasmaColors(
+            primaryTextColor = SoftFrostText,
+            secondaryTextColor = SoftFrostText.copy(alpha = 0.8f),
+            primaryAccent = AuroraCyan,
+            secondaryAccent = AuroraCyan.copy(alpha = 0.8f),
+          ),
+        offsetXDpFloatState = offsetX,
+        offsetYDpFloatState = offsetY,
+        pulseState = mutableFloatStateOf(0.5f),
+      )
+    val snapshot =
+      WeatherSnapshot(
+        locationName = "Seattle, WA",
+        latitude = 47.6062,
+        longitude = -122.3321,
+        currentTemp = 54,
+        feelsLikeTemp = 52,
+        todayHighTemp = 58,
+        todayLowTemp = 44,
+        currentCondition = WeatherCondition.CLOUDY,
+        tempUnit = TemperatureUnit.FAHRENHEIT,
+        windSpeed = 8,
+        windGusts = 14,
+        windUnitLabel = "mph",
+        humidityPercent = 72,
+        hourlySlots =
+          listOf(
+            HourlySlot(10, 0, 52, WeatherCondition.CLOUDY, 15, isDay = true, isNow = true),
+            HourlySlot(11, 0, 54, WeatherCondition.CLOUDY, 20, isDay = true, isNow = false),
+          ),
+        next12Hours =
+          listOf(
+            HourlyMetricSlot(10, 0, 15, 8, 14, 180, 28),
+            HourlyMetricSlot(11, 0, 25, 10, 16, 190, 32),
+          ),
+        dailyForecasts = listOf(DailyForecast("Tue", WeatherCondition.RAINY, 58, 44, 60)),
+        alerts = emptyList(),
+        sunriseHour24 = 7,
+        sunriseMinute = 10,
+        sunsetHour24 = 16,
+        sunsetMinute = 35,
+        fetchedAtEpochMs = 1_000_000L,
+      )
+
+    composeTestRule.mainClock.autoAdvance = false
+    composeTestRule.setContent {
+      PlasmaSkyTheme {
+        Box(modifier = Modifier.size(900.dp, 220.dp)) {
+          com.example.ui.components.RotatingHourlyCubePanel(
+            snapshot = snapshot,
+            use24Hour = false,
+            plasma = plasma,
+            isCompact = false,
+            isShortHeight = false,
+            expandHeight = true,
+            enabledFaces = HourlyCubeFace.entries,
+            manualStepEvents = stepFlow,
+          )
+        }
+      }
+    }
+
+    fun activeFaceTitle(): String? =
+      composeTestRule
+        .onNode(androidx.compose.ui.test.hasTestTag("hourly_forecast_section"))
+        .fetchSemanticsNode()
+        .config[androidx.compose.ui.semantics.SemanticsProperties.StateDescription]
+
+    composeTestRule.waitForIdle()
+    assertEquals(HourlyCubeFace.FORECAST_24H.title, activeFaceTitle())
+
+    // Press Down (+1): skips forward to 12-HOUR PRECIPITATION
+    assertTrue(stepFlow.tryEmit(1))
+    composeTestRule.mainClock.advanceTimeBy(600L)
+    composeTestRule.waitForIdle()
+    assertEquals(HourlyCubeFace.PRECIPITATION_12H.title, activeFaceTitle())
+
+    // After normal 1x hold duration (14,050ms), must STILL be on PRECIPITATION because timer doubled
+    composeTestRule.mainClock.advanceTimeBy(com.example.ui.components.FACE_HOLD_DURATION_MS + 500L)
+    composeTestRule.waitForIdle()
+    assertEquals(HourlyCubeFace.PRECIPITATION_12H.title, activeFaceTitle())
+
+    // After second half of doubled hold + roll completes, auto-advances to WIND
+    composeTestRule.mainClock.advanceTimeBy(
+      com.example.ui.components.FACE_HOLD_DURATION_MS +
+        com.example.ui.components.CUBE_ROLL_DURATION_MS +
+        300L
+    )
+    composeTestRule.waitForIdle()
+    assertEquals(HourlyCubeFace.WIND_12H.title, activeFaceTitle())
+
+    // WIND uses the regular 1x hold timer and advances to AIR QUALITY
+    composeTestRule.mainClock.advanceTimeBy(
+      com.example.ui.components.FACE_HOLD_DURATION_MS +
+        com.example.ui.components.CUBE_ROLL_DURATION_MS +
+        300L
+    )
+    composeTestRule.waitForIdle()
+    assertEquals(HourlyCubeFace.AIR_QUALITY_12H.title, activeFaceTitle())
+
+    // Press Up (-1) twice to rewind AIR QUALITY -> WIND -> PRECIPITATION
+    assertTrue(stepFlow.tryEmit(-1))
+    composeTestRule.mainClock.advanceTimeBy(500L)
+    assertTrue(stepFlow.tryEmit(-1))
+    composeTestRule.mainClock.advanceTimeBy(500L)
+    composeTestRule.waitForIdle()
+    assertEquals(HourlyCubeFace.PRECIPITATION_12H.title, activeFaceTitle())
+
+    // Stopped face (PRECIPITATION) again holds for doubled duration before returning to regular 1x on WIND
+    composeTestRule.mainClock.advanceTimeBy(com.example.ui.components.FACE_HOLD_DURATION_MS + 500L)
+    composeTestRule.waitForIdle()
+    assertEquals(HourlyCubeFace.PRECIPITATION_12H.title, activeFaceTitle())
+
+    composeTestRule.mainClock.advanceTimeBy(
+      com.example.ui.components.FACE_HOLD_DURATION_MS +
+        com.example.ui.components.CUBE_ROLL_DURATION_MS +
+        300L
+    )
+    composeTestRule.waitForIdle()
+    assertEquals(HourlyCubeFace.WIND_12H.title, activeFaceTitle())
+  }
+
+  @Test
+  @Config(qualifiers = "w960dp-h540dp")
+  fun `settings uses side-by-side two-column tv layout with uniform button widths`() {
+    composeTestRule.setContent {
+      PlasmaSkyTheme {
+        Box(modifier = Modifier.size(960.dp, 540.dp)) {
+          com.example.ui.screens.SettingsOverlay(
+            settings = UserSettings(),
+            citySearchState = com.example.ui.CitySearchUiState(),
+            activeAlerts = emptyList(),
+            accentColor = AuroraCyan,
+            onDismiss = {},
+            onQueryChange = {},
+            onSearchSubmit = {},
+            onSelectCity = {},
+            onSelectSavedLocation = {},
+            onRemoveSavedLocation = {},
+            onToggleAutoRotateLocations = {},
+            onSelectUnit = {},
+            onSelectWindUnit = {},
+            onToggle24Hour = {},
+            onToggle7DayForecast = {},
+            onToggleBottomBarTemp24h = {},
+            onToggleBottomBarWind = {},
+            onToggleBottomBarAirQuality = {},
+            onToggleBottomBarPrecipitation = {},
+            onToggleSevereAlerts = {},
+            onSelectDriftIntensity = {},
+            onSelectDriftMotionMode = {},
+            onSelectTextColor = {},
+            onRefreshWeather = {},
+          )
+        }
+      }
+    }
+
+    composeTestRule.waitForIdle()
+
+    fun boundsOf(tag: String) =
+      composeTestRule
+        .onNode(androidx.compose.ui.test.hasTestTag(tag))
+        .also { it.performScrollTo() }
+        .fetchSemanticsNode()
+        .boundsInRoot
+
+    // Left column (Display Panels) sits strictly to the left of Right column (Motion Mode)
+    val leftPanelBounds = boundsOf("toggle_7day_chip")
+    val rightPanelBounds = boundsOf("motion_mode_clockwise_chip")
+    assertTrue(
+      "Expected two-column layout with left panel right=${leftPanelBounds.right} < right panel left=${rightPanelBounds.left}",
+      leftPanelBounds.right < rightPanelBounds.left,
+    )
+
+    // Bottom Bar 2x2 toggles have uniform equal widths and aligned rows
+    val tempBounds = boundsOf("toggle_bottom_bar_temp_24h_chip")
+    val precipBounds = boundsOf("toggle_bottom_bar_precipitation_chip")
+    val windBounds = boundsOf("toggle_bottom_bar_wind_chip")
+    val aqiBounds = boundsOf("toggle_bottom_bar_air_quality_chip")
+    assertEquals(tempBounds.top, precipBounds.top, 1f)
+    assertEquals(windBounds.top, aqiBounds.top, 1f)
+    assertEquals(tempBounds.width, precipBounds.width, 1f)
+    assertEquals(windBounds.width, aqiBounds.width, 1f)
+    assertEquals(tempBounds.width, windBounds.width, 1f)
+
+    // All 5 Drift Speed tiles sit on a single aligned row with equal widths
+    val driftBounds =
+      DriftIntensity.entries.map { mode -> boundsOf("drift_${mode.name.lowercase()}_chip") }
+    driftBounds.drop(1).forEach { b ->
+      assertEquals(driftBounds.first().top, b.top, 1f)
+      assertEquals(driftBounds.first().width, b.width, 1.5f)
+    }
+
+    // Refresh Weather and Resume Screensaver share exact row alignment and width
+    val refreshBounds = boundsOf("refresh_weather_button")
+    val resumeBounds = boundsOf("resume_screensaver_button")
+    assertEquals(refreshBounds.top, resumeBounds.top, 1f)
+    assertEquals(refreshBounds.width, resumeBounds.width, 1f)
+  }
 }

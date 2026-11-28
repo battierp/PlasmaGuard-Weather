@@ -10,7 +10,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
@@ -52,7 +54,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -163,7 +164,6 @@ fun SettingsOverlay(
 ) {
   BackHandler(onBack = onDismiss)
 
-  val context = LocalContext.current
   val keyboardController = LocalSoftwareKeyboardController.current
   val closeButtonFocusRequester = remember { FocusRequester() }
   val searchBoxFocusRequester = remember { FocusRequester() }
@@ -178,7 +178,7 @@ fun SettingsOverlay(
   var pendingFocusFirstResult by remember { mutableStateOf(false) }
   var pendingFocusSearchAfterSelect by remember { mutableStateOf(false) }
 
-  // Ensure initial focus lands on the Close button so the search box / keyboard never auto-opens
+  // Ensure initial focus lands on Close so the search box / soft keyboard never auto-opens
   LaunchedEffect(Unit) {
     keyboardController?.hide()
     withFrameNanos {}
@@ -245,24 +245,27 @@ fun SettingsOverlay(
     runCatching { searchBoxFocusRequester.requestFocus() }
   }
 
-  Box(
+  BoxWithConstraints(
     modifier =
       Modifier.fillMaxSize()
-        .background(ObsidianBlack.copy(alpha = 0.84f))
+        .background(ObsidianBlack.copy(alpha = 0.86f))
         .safeDrawingPadding()
         .padding(16.dp),
     contentAlignment = Alignment.Center,
   ) {
+    val useTwoColumns = maxWidth >= 780.dp
+
     Surface(
-      modifier = Modifier.fillMaxWidth().widthIn(max = 760.dp),
+      modifier =
+        Modifier.fillMaxWidth()
+          .widthIn(max = if (useTwoColumns) 1060.dp else 760.dp),
       shape = RoundedCornerShape(24.dp),
       color = MidnightSlate.copy(alpha = 0.96f),
-      border = BorderStroke(1.dp, accentColor.copy(alpha = 0.35f)),
       tonalElevation = 8.dp,
     ) {
       Column(
-        modifier = Modifier.verticalScroll(rememberScrollState()).padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp),
+        modifier = Modifier.verticalScroll(rememberScrollState()).padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
       ) {
         // Header
         Row(
@@ -270,7 +273,7 @@ fun SettingsOverlay(
           verticalAlignment = Alignment.CenterVertically,
           horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-          Column(modifier = Modifier.weight(1f)) {
+          Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(
               text = "PlasmaSky Controls",
               style = MaterialTheme.typography.headlineMedium,
@@ -279,11 +282,16 @@ fun SettingsOverlay(
             Text(
               text = "Current city: ${settings.cityName}",
               style = MaterialTheme.typography.bodyMedium,
-              color = SoftFrostText,
+              color = SoftFrostText.copy(alpha = 0.80f),
             )
           }
+
           var closeFocused by remember { mutableStateOf(false) }
-          val closeScale by animateFloatAsState(targetValue = if (closeFocused) 1.08f else 1f, label = "close_scale")
+          val closeScale by
+            animateFloatAsState(
+              targetValue = if (closeFocused) 1.08f else 1f,
+              label = "close_scale",
+            )
           IconButton(
             onClick = {
               keyboardController?.hide()
@@ -293,10 +301,14 @@ fun SettingsOverlay(
               Modifier.scale(closeScale)
                 .minimumInteractiveComponentSize()
                 .clip(CircleShape)
-                .background(if (closeFocused) lerp(ElevatedSurface, BrightGold, 0.20f) else Color.Transparent, CircleShape)
+                .background(
+                  if (closeFocused) lerp(ElevatedSurface, BrightGold, 0.20f)
+                  else DeepCardSurface.copy(alpha = 0.8f),
+                  CircleShape,
+                )
                 .border(
-                  width = if (closeFocused) 3.dp else 1.dp,
-                  color = if (closeFocused) BrightGold else SubtleOutline,
+                  width = if (closeFocused) 3.dp else 0.dp,
+                  color = if (closeFocused) BrightGold else Color.Transparent,
                   shape = CircleShape,
                 )
                 .focusRequester(closeButtonFocusRequester)
@@ -311,1082 +323,1402 @@ fun SettingsOverlay(
           }
         }
 
-        HorizontalDivider(color = SubtleOutline)
-
-        // Location Search & Saved Locations (Up to 5)
-        SectionHeader(
-          icon = Icons.Rounded.LocationOn,
-          title = "Locations (${settings.savedLocations.size}/$MAX_SAVED_LOCATIONS Saved)",
-          tint = accentColor,
-        )
-        Row(
-          modifier = Modifier.fillMaxWidth(),
-          horizontalArrangement = Arrangement.spacedBy(10.dp),
-          verticalAlignment = Alignment.CenterVertically,
-        ) {
-          val isSearchHighlighted = searchBoxFocused || isSearchEditing || searchFieldFocused
-          val searchScale by animateFloatAsState(
-            targetValue = if (isSearchHighlighted) 1.015f else 1f,
-            label = "search_scale",
-          )
-          Box(
-            modifier = Modifier.weight(1f).scale(searchScale).defaultMinSize(minHeight = 56.dp),
-            contentAlignment = Alignment.CenterStart,
+        if (useTwoColumns) {
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            verticalAlignment = Alignment.Top,
           ) {
-            // Non-nested sibling activation layer for D-pad focus & OK press when not actively typing
-            Box(
-              modifier =
-                Modifier.matchParentSize()
-                  .clip(RoundedCornerShape(14.dp))
-                  .focusRequester(searchBoxFocusRequester)
-                  .focusProperties { canFocus = !searchFieldFocused }
-                  .onFocusChanged { searchBoxFocused = it.isFocused }
-                  .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                  ) {
-                    if (!isSearchEditing) {
-                      searchFieldAcquiredFocus = false
-                      isSearchEditing = true
-                    }
-                  }
-                  .then(if (isSearchEditing) Modifier else Modifier.testTag("city_search_input"))
-            )
-
-            // Persistent visual Surface + permanently mounted BasicTextField (never detached between searches)
-            Surface(
-              modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 56.dp),
-              shape = RoundedCornerShape(14.dp),
-              color = if (isSearchHighlighted) lerp(DeepCardSurface, BrightGold, 0.16f) else DeepCardSurface,
-              border =
-                BorderStroke(
-                  width = if (isSearchHighlighted) 3.dp else 1.dp,
-                  color = if (isSearchHighlighted) BrightGold else SubtleOutline,
-                ),
+            Column(
+              modifier = Modifier.weight(1f),
+              verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
-              Box(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 15.dp),
-                contentAlignment = Alignment.CenterStart,
-              ) {
-                BasicTextField(
-                  value = citySearchState.query,
-                  onValueChange = onQueryChange,
-                  enabled = isSearchEditing,
-                  readOnly = !isSearchEditing,
-                  modifier =
-                    Modifier.fillMaxWidth()
-                      .focusRequester(searchFieldFocusRequester)
-                      .onFocusChanged { focusState ->
-                        val nowFocused = focusState.isFocused || focusState.hasFocus
-                        searchFieldFocused = nowFocused
-                        if (nowFocused) {
-                          searchFieldAcquiredFocus = true
-                        }
-                      }
-                      .then(if (isSearchEditing) Modifier.testTag("city_search_input") else Modifier),
-                  singleLine = true,
-                  textStyle = MaterialTheme.typography.bodyLarge.copy(color = SoftFrostText),
-                  cursorBrush = SolidColor(BrightGold),
-                  keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                  keyboardActions =
-                    KeyboardActions(
-                      onSearch = {
-                        pendingFocusFirstResult = true
-                        searchFieldFocused = false
-                        searchFieldAcquiredFocus = false
-                        isSearchEditing = false
-                        keyboardController?.hide()
-                        onSearchSubmit()
-                      }
-                    ),
-                  decorationBox = { innerTextField ->
-                    Box(
-                      modifier = Modifier.fillMaxWidth(),
-                      contentAlignment = Alignment.CenterStart,
-                    ) {
-                      if (citySearchState.query.isEmpty()) {
-                        Text(
-                          text =
-                            if (isSearchEditing) "Type city or zip code..."
-                            else "Search city or zip code (press OK to type)",
-                          style = MaterialTheme.typography.bodyLarge,
-                          color = SoftFrostText.copy(alpha = 0.65f),
-                          maxLines = 1,
-                          overflow = TextOverflow.Ellipsis,
-                        )
-                      }
-                      innerTextField()
-                    }
-                  },
-                )
-              }
+              LocationsSectionCard(
+                settings = settings,
+                citySearchState = citySearchState,
+                accentColor = accentColor,
+                isSearchEditing = isSearchEditing,
+                searchBoxFocused = searchBoxFocused,
+                searchFieldFocused = searchFieldFocused,
+                searchBtnFocused = searchBtnFocused,
+                searchBoxFocusRequester = searchBoxFocusRequester,
+                searchFieldFocusRequester = searchFieldFocusRequester,
+                firstResultFocusRequester = firstResultFocusRequester,
+                onSearchBoxFocusChange = { searchBoxFocused = it },
+                onSearchFieldFocusChange = { focused ->
+                  searchFieldFocused = focused
+                  if (focused) searchFieldAcquiredFocus = true
+                },
+                onSearchBtnFocusChange = { searchBtnFocused = it },
+                onStartEditing = {
+                  searchFieldAcquiredFocus = false
+                  isSearchEditing = true
+                },
+                onSubmitSearch = {
+                  pendingFocusFirstResult = true
+                  searchFieldFocused = false
+                  searchFieldAcquiredFocus = false
+                  isSearchEditing = false
+                  keyboardController?.hide()
+                  onSearchSubmit()
+                },
+                onSelectCity = { city ->
+                  searchFieldFocused = false
+                  searchFieldAcquiredFocus = false
+                  isSearchEditing = false
+                  pendingFocusSearchAfterSelect = true
+                  runCatching { searchBoxFocusRequester.requestFocus() }
+                  onSelectCity(city)
+                },
+                onQueryChange = onQueryChange,
+                onSelectSavedLocation = onSelectSavedLocation,
+                onRemoveSavedLocation = onRemoveSavedLocation,
+                onToggleAutoRotateLocations = onToggleAutoRotateLocations,
+              )
+
+              DisplayPanelsSectionCard(
+                settings = settings,
+                activeAlerts = activeAlerts,
+                accentColor = accentColor,
+                onToggle7DayForecast = onToggle7DayForecast,
+                onToggleSevereAlerts = onToggleSevereAlerts,
+                onToggleBottomBarTemp24h = onToggleBottomBarTemp24h,
+                onToggleBottomBarPrecipitation = onToggleBottomBarPrecipitation,
+                onToggleBottomBarWind = onToggleBottomBarWind,
+                onToggleBottomBarAirQuality = onToggleBottomBarAirQuality,
+              )
+
+              UnitsAndClockSectionCard(
+                settings = settings,
+                accentColor = accentColor,
+                onSelectUnit = onSelectUnit,
+                onSelectWindUnit = onSelectWindUnit,
+                onToggle24Hour = onToggle24Hour,
+              )
+            }
+
+            Column(
+              modifier = Modifier.weight(1f),
+              verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+              MotionAndShieldSectionCard(
+                settings = settings,
+                accentColor = accentColor,
+                onSelectDriftMotionMode = onSelectDriftMotionMode,
+                onSelectDriftIntensity = onSelectDriftIntensity,
+              )
+
+              AppearanceSectionCard(
+                selectedOption = settings.textColorOption,
+                accentColor = accentColor,
+                onSelectTextColor = onSelectTextColor,
+              )
+
+              AppUpdatesSectionCard(
+                accentColor = accentColor,
+                appUpdateState = appUpdateState,
+                onCheckForAppUpdate = onCheckForAppUpdate,
+                onDownloadAndInstallUpdate = onDownloadAndInstallUpdate,
+                onConsumeAutoInstallLaunch = onConsumeAutoInstallLaunch,
+              )
+
+              QuickActionsRow(
+                accentColor = accentColor,
+                onRefreshWeather = onRefreshWeather,
+                onResumeScreensaver = {
+                  keyboardController?.hide()
+                  onDismiss()
+                },
+              )
             }
           }
-          val searchBtnScale by animateFloatAsState(targetValue = if (searchBtnFocused) 1.06f else 1f, label = "search_btn_scale")
-          Button(
-            onClick = {
-              if (!citySearchState.isSearching) {
+        } else {
+          Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+          ) {
+            LocationsSectionCard(
+              settings = settings,
+              citySearchState = citySearchState,
+              accentColor = accentColor,
+              isSearchEditing = isSearchEditing,
+              searchBoxFocused = searchBoxFocused,
+              searchFieldFocused = searchFieldFocused,
+              searchBtnFocused = searchBtnFocused,
+              searchBoxFocusRequester = searchBoxFocusRequester,
+              searchFieldFocusRequester = searchFieldFocusRequester,
+              firstResultFocusRequester = firstResultFocusRequester,
+              onSearchBoxFocusChange = { searchBoxFocused = it },
+              onSearchFieldFocusChange = { focused ->
+                searchFieldFocused = focused
+                if (focused) searchFieldAcquiredFocus = true
+              },
+              onSearchBtnFocusChange = { searchBtnFocused = it },
+              onStartEditing = {
+                searchFieldAcquiredFocus = false
+                isSearchEditing = true
+              },
+              onSubmitSearch = {
                 pendingFocusFirstResult = true
                 searchFieldFocused = false
                 searchFieldAcquiredFocus = false
                 isSearchEditing = false
                 keyboardController?.hide()
                 onSearchSubmit()
-              }
-            },
-            modifier =
-              Modifier.height(54.dp)
-                .scale(searchBtnScale)
-                .onFocusChanged { searchBtnFocused = it.isFocused || it.hasFocus }
-                .testTag("city_search_button"),
-            shape = RoundedCornerShape(14.dp),
-            border = if (searchBtnFocused) BorderStroke(3.dp, BrightGold) else null,
-            colors = ButtonDefaults.buttonColors(containerColor = accentColor, contentColor = ObsidianBlack),
-          ) {
-            if (citySearchState.isSearching) {
-              CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = ObsidianBlack)
-            } else {
-              Icon(imageVector = Icons.Rounded.Search, contentDescription = "Search city or zip code")
-            }
+              },
+              onSelectCity = { city ->
+                searchFieldFocused = false
+                searchFieldAcquiredFocus = false
+                isSearchEditing = false
+                pendingFocusSearchAfterSelect = true
+                runCatching { searchBoxFocusRequester.requestFocus() }
+                onSelectCity(city)
+              },
+              onQueryChange = onQueryChange,
+              onSelectSavedLocation = onSelectSavedLocation,
+              onRemoveSavedLocation = onRemoveSavedLocation,
+              onToggleAutoRotateLocations = onToggleAutoRotateLocations,
+            )
+
+            UnitsAndClockSectionCard(
+              settings = settings,
+              accentColor = accentColor,
+              onSelectUnit = onSelectUnit,
+              onSelectWindUnit = onSelectWindUnit,
+              onToggle24Hour = onToggle24Hour,
+            )
+
+            DisplayPanelsSectionCard(
+              settings = settings,
+              activeAlerts = activeAlerts,
+              accentColor = accentColor,
+              onToggle7DayForecast = onToggle7DayForecast,
+              onToggleSevereAlerts = onToggleSevereAlerts,
+              onToggleBottomBarTemp24h = onToggleBottomBarTemp24h,
+              onToggleBottomBarPrecipitation = onToggleBottomBarPrecipitation,
+              onToggleBottomBarWind = onToggleBottomBarWind,
+              onToggleBottomBarAirQuality = onToggleBottomBarAirQuality,
+            )
+
+            MotionAndShieldSectionCard(
+              settings = settings,
+              accentColor = accentColor,
+              onSelectDriftMotionMode = onSelectDriftMotionMode,
+              onSelectDriftIntensity = onSelectDriftIntensity,
+            )
+
+            AppearanceSectionCard(
+              selectedOption = settings.textColorOption,
+              accentColor = accentColor,
+              onSelectTextColor = onSelectTextColor,
+            )
+
+            QuickActionsRow(
+              accentColor = accentColor,
+              onRefreshWeather = onRefreshWeather,
+              onResumeScreensaver = {
+                keyboardController?.hide()
+                onDismiss()
+              },
+            )
+
+            AppUpdatesSectionCard(
+              accentColor = accentColor,
+              appUpdateState = appUpdateState,
+              onCheckForAppUpdate = onCheckForAppUpdate,
+              onDownloadAndInstallUpdate = onDownloadAndInstallUpdate,
+              onConsumeAutoInstallLaunch = onConsumeAutoInstallLaunch,
+            )
           }
         }
+      }
+    }
+  }
+}
 
-        if (citySearchState.statusMessage != null) {
-          Text(
-            text = citySearchState.statusMessage,
-            style = MaterialTheme.typography.bodyMedium,
-            color = SoftFrostText,
-          )
-        }
+@Composable
+private fun SettingsSectionCard(
+  modifier: Modifier = Modifier,
+  content: @Composable ColumnScope.() -> Unit,
+) {
+  Surface(
+    modifier = modifier.fillMaxWidth(),
+    shape = RoundedCornerShape(18.dp),
+    color = DeepCardSurface.copy(alpha = 0.72f),
+    tonalElevation = 2.dp,
+  ) {
+    Column(
+      modifier = Modifier.fillMaxWidth().padding(14.dp),
+      verticalArrangement = Arrangement.spacedBy(10.dp),
+      content = content,
+    )
+  }
+}
 
-        if (citySearchState.results.isNotEmpty()) {
-          Column(
-            modifier =
-              Modifier.fillMaxWidth()
-                .clip(RoundedCornerShape(14.dp))
-                .background(DeepCardSurface)
-                .border(1.dp, SubtleOutline, RoundedCornerShape(14.dp))
-                .padding(6.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-          ) {
-            Text(
-              text = "Suggestions (press Down or Search to select)",
-              style = MaterialTheme.typography.labelSmall,
-              color = SoftFrostText.copy(alpha = 0.72f),
-              modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-            )
-            citySearchState.results.take(5).forEachIndexed { index, city ->
-              var focused by remember { mutableStateOf(false) }
-              Row(
-                modifier =
-                  Modifier.fillMaxWidth()
-                    .minimumInteractiveComponentSize()
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(if (focused) lerp(ElevatedSurface, BrightGold, 0.16f) else Color.Transparent)
-                    .border(
-                      width = if (focused) 3.dp else 0.dp,
-                      color = if (focused) BrightGold else Color.Transparent,
-                      shape = RoundedCornerShape(10.dp),
-                    )
-                    .then(if (index == 0) Modifier.focusRequester(firstResultFocusRequester) else Modifier)
-                    .onFocusChanged { focused = it.isFocused }
-                    .clickable {
-                      searchFieldFocused = false
-                      searchFieldAcquiredFocus = false
-                      isSearchEditing = false
-                      pendingFocusSearchAfterSelect = true
-                      runCatching { searchBoxFocusRequester.requestFocus() }
-                      onSelectCity(city)
-                    }
-                    .padding(horizontal = 12.dp, vertical = 10.dp)
-                    .testTag("city_result_item"),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun LocationsSectionCard(
+  settings: UserSettings,
+  citySearchState: CitySearchUiState,
+  accentColor: Color,
+  isSearchEditing: Boolean,
+  searchBoxFocused: Boolean,
+  searchFieldFocused: Boolean,
+  searchBtnFocused: Boolean,
+  searchBoxFocusRequester: FocusRequester,
+  searchFieldFocusRequester: FocusRequester,
+  firstResultFocusRequester: FocusRequester,
+  onSearchBoxFocusChange: (Boolean) -> Unit,
+  onSearchFieldFocusChange: (Boolean) -> Unit,
+  onSearchBtnFocusChange: (Boolean) -> Unit,
+  onStartEditing: () -> Unit,
+  onSubmitSearch: () -> Unit,
+  onSelectCity: (CitySearchResult) -> Unit,
+  onQueryChange: (String) -> Unit,
+  onSelectSavedLocation: (SavedLocation) -> Unit,
+  onRemoveSavedLocation: (SavedLocation) -> Unit,
+  onToggleAutoRotateLocations: (Boolean) -> Unit,
+) {
+  SettingsSectionCard {
+    SectionHeader(
+      icon = Icons.Rounded.LocationOn,
+      title = "Locations (${settings.savedLocations.size}/$MAX_SAVED_LOCATIONS)",
+      tint = accentColor,
+    )
+
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.spacedBy(8.dp),
+      verticalAlignment = Alignment.CenterVertically,
+    ) {
+      val isSearchHighlighted = searchBoxFocused || isSearchEditing || searchFieldFocused
+      val searchScale by
+        animateFloatAsState(
+          targetValue = if (isSearchHighlighted) 1.015f else 1f,
+          label = "search_scale",
+        )
+      Box(
+        modifier = Modifier.weight(1f).scale(searchScale).defaultMinSize(minHeight = 50.dp),
+        contentAlignment = Alignment.CenterStart,
+      ) {
+        Box(
+          modifier =
+            Modifier.matchParentSize()
+              .clip(RoundedCornerShape(12.dp))
+              .focusRequester(searchBoxFocusRequester)
+              .focusProperties { canFocus = !searchFieldFocused }
+              .onFocusChanged { onSearchBoxFocusChange(it.isFocused) }
+              .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
               ) {
-                Text(text = city.displayName, style = MaterialTheme.typography.bodyLarge, color = SoftFrostText)
-                Text(text = "Save & Select", style = MaterialTheme.typography.labelLarge, color = SoftFrostText)
+                if (!isSearchEditing) onStartEditing()
               }
-            }
-          }
-        }
-
-        if (settings.savedLocations.isNotEmpty()) {
-          FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-          ) {
-            settings.savedLocations.forEach { saved ->
-              val isCurrent = saved.matches(settings.latitude, settings.longitude)
-              SavedLocationPill(
-                location = saved,
-                selected = isCurrent,
-                canRemove = settings.savedLocations.size > 1,
-                accentColor = accentColor,
-                onSelect = { onSelectSavedLocation(saved) },
-                onRemove = { onRemoveSavedLocation(saved) },
-              )
-            }
-          }
-        }
-
-        FlowRow(
-          horizontalArrangement = Arrangement.spacedBy(8.dp),
-          verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-          TvSelectableChip(
-            label = if (settings.autoRotateLocations) "Auto-Rotate Cities: ON (2 min)" else "Auto-Rotate Cities: OFF",
-            selected = settings.autoRotateLocations,
-            accentColor = accentColor,
-            leadingIcon = Icons.Rounded.Sync,
-            testTag = "auto_rotate_locations_chip",
-            onClick = { onToggleAutoRotateLocations(!settings.autoRotateLocations) },
-          )
-        }
-        Text(
-          text =
-            if (settings.savedLocations.size > 1) {
-              "Tip: Press Left / Right on D-pad to swap between your ${settings.savedLocations.size} saved cities."
-            } else {
-              "Save up to 5 locations using search above, then swap with D-pad Left / Right or enable Auto-Rotate."
-            },
-          style = MaterialTheme.typography.labelSmall,
-          color = SoftFrostText.copy(alpha = 0.78f),
+              .then(if (isSearchEditing) Modifier else Modifier.testTag("city_search_input"))
         )
 
-        HorizontalDivider(color = SubtleOutline)
-
-        // Units & Clock (Single-press toggles)
-        SectionHeader(icon = Icons.Rounded.Schedule, title = "Units & Clock", tint = accentColor)
-        FlowRow(
-          horizontalArrangement = Arrangement.spacedBy(8.dp),
-          verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-          TvSelectableChip(
-            label =
-              if (settings.temperatureUnit == TemperatureUnit.FAHRENHEIT) "Temp: °F Fahrenheit"
-              else "Temp: °C Celsius",
-            selected = true,
-            accentColor = accentColor,
-            leadingIcon = Icons.Rounded.SwapHoriz,
-            testTag = "unit_toggle_chip",
-            onClick = {
-              val next =
-                if (settings.temperatureUnit == TemperatureUnit.FAHRENHEIT) TemperatureUnit.CELSIUS
-                else TemperatureUnit.FAHRENHEIT
-              onSelectUnit(next)
-            },
-          )
-          TvSelectableChip(
-            label =
-              if (settings.windSpeedUnit == WindSpeedUnit.MPH) "Wind: mph"
-              else "Wind: kph",
-            selected = true,
-            accentColor = accentColor,
-            leadingIcon = Icons.Rounded.SwapHoriz,
-            testTag = "wind_unit_toggle_chip",
-            onClick = {
-              val next =
-                if (settings.windSpeedUnit == WindSpeedUnit.MPH) WindSpeedUnit.KPH
-                else WindSpeedUnit.MPH
-              onSelectWindUnit(next)
-            },
-          )
-          TvSelectableChip(
-            label = if (settings.use24HourClock) "Clock: 24-Hour" else "Clock: 12-Hour",
-            selected = true,
-            accentColor = accentColor,
-            leadingIcon = Icons.Rounded.SwapHoriz,
-            testTag = "clock_toggle_chip",
-            onClick = { onToggle24Hour(!settings.use24HourClock) },
-          )
-        }
-
-        HorizontalDivider(color = SubtleOutline)
-
-        // Forecast Panels, Bottom Bar & Severe Alerts
-        SectionHeader(
-          icon = Icons.Rounded.DashboardCustomize,
-          title = "Display Panels & Weather Features",
-          tint = accentColor,
-        )
-        FlowRow(
-          horizontalArrangement = Arrangement.spacedBy(8.dp),
-          verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-          TvSelectableChip(
-            label = if (settings.show7DayForecast) "7-Day Forecast: ON" else "7-Day Forecast: OFF",
-            selected = settings.show7DayForecast,
-            accentColor = accentColor,
-            testTag = "toggle_7day_chip",
-            onClick = { onToggle7DayForecast(!settings.show7DayForecast) },
-          )
-          TvSelectableChip(
-            label = if (settings.showSevereWeatherAlerts) "Severe Alerts Banner: ON" else "Severe Alerts Banner: OFF",
-            selected = settings.showSevereWeatherAlerts,
-            accentColor = accentColor,
-            leadingIcon = Icons.Rounded.WarningAmber,
-            testTag = "toggle_severe_alerts_chip",
-            onClick = { onToggleSevereAlerts(!settings.showSevereWeatherAlerts) },
-          )
-        }
-
-        // Bottom Bar on its own line with bullet-point toggles directly beneath it
-        val enabledBottomBarCount =
-          listOf(
-            settings.showBottomBarTemp24h,
-            settings.showBottomBarWind,
-            settings.showBottomBarAirQuality,
-            settings.showBottomBarPrecipitation,
-          ).count { it }
-        Column(
-          modifier = Modifier.fillMaxWidth().testTag("bottom_bar_settings_group"),
-          verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-          Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-          ) {
-            Text(
-              text = "Bottom Bar",
-              style = MaterialTheme.typography.titleSmall,
-              fontWeight = FontWeight.SemiBold,
-              color = SoftFrostText,
-            )
-            Text(
-              text =
-                if (enabledBottomBarCount == 0) "(Hidden — all items off)"
-                else "($enabledBottomBarCount/4 enabled)",
-              style = MaterialTheme.typography.labelSmall,
-              color = SoftFrostText.copy(alpha = 0.72f),
-            )
-          }
-
-          Column(
-            modifier = Modifier.fillMaxWidth().padding(start = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-          ) {
-            BottomBarBulletToggle(
-              label = if (settings.showBottomBarTemp24h) "24h Temp: ON" else "24h Temp: OFF",
-              selected = settings.showBottomBarTemp24h,
-              accentColor = accentColor,
-              testTag = "toggle_bottom_bar_temp_24h_chip",
-              onClick = { onToggleBottomBarTemp24h(!settings.showBottomBarTemp24h) },
-            )
-            BottomBarBulletToggle(
-              label = if (settings.showBottomBarPrecipitation) "Precipitation: ON" else "Precipitation: OFF",
-              selected = settings.showBottomBarPrecipitation,
-              accentColor = accentColor,
-              testTag = "toggle_bottom_bar_precipitation_chip",
-              onClick = { onToggleBottomBarPrecipitation(!settings.showBottomBarPrecipitation) },
-            )
-            BottomBarBulletToggle(
-              label = if (settings.showBottomBarWind) "Wind: ON" else "Wind: OFF",
-              selected = settings.showBottomBarWind,
-              accentColor = accentColor,
-              testTag = "toggle_bottom_bar_wind_chip",
-              onClick = { onToggleBottomBarWind(!settings.showBottomBarWind) },
-            )
-            BottomBarBulletToggle(
-              label = if (settings.showBottomBarAirQuality) "Air Quality: ON" else "Air Quality: OFF",
-              selected = settings.showBottomBarAirQuality,
-              accentColor = accentColor,
-              testTag = "toggle_bottom_bar_air_quality_chip",
-              onClick = { onToggleBottomBarAirQuality(!settings.showBottomBarAirQuality) },
-            )
-          }
-        }
-
-        if (settings.showSevereWeatherAlerts) {
-          val alertSummary =
-            if (activeAlerts.isNotEmpty()) {
-              "Active advisory for ${settings.cityName}: ${activeAlerts.joinToString(" • ") { it.event }}"
-            } else {
-              "No active severe weather alerts or advisories for ${settings.cityName}."
-            }
-          Text(
-            text = alertSummary,
-            style = MaterialTheme.typography.labelSmall,
-            color = SoftFrostText.copy(alpha = 0.85f),
-          )
-        }
-
-        HorizontalDivider(color = SubtleOutline)
-
-        // Dedicated Motion Mode Toggle (Clockwise vs DVD Bounce)
-        SectionHeader(
-          icon = Icons.Rounded.OpenWith,
-          title = "Motion Mode",
-          tint = accentColor,
-        )
-        Row(
-          modifier = Modifier.fillMaxWidth(),
-          horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-          DriftMotionMode.entries.forEach { motionMode ->
-            val selected = settings.driftMotionMode == motionMode
-            var focused by remember { mutableStateOf(false) }
-            val motionScale by animateFloatAsState(targetValue = if (focused) 1.03f else 1f, label = "motion_scale")
-            val containerColor =
-              when {
-                focused && selected -> lerp(accentColor.copy(alpha = 0.24f), BrightGold, 0.18f)
-                focused -> lerp(ElevatedSurface, BrightGold, 0.16f)
-                selected -> accentColor.copy(alpha = 0.22f)
-                else -> DeepCardSurface
-              }
-            Surface(
-              modifier =
-                Modifier.weight(1f)
-                  .scale(motionScale)
-                  .minimumInteractiveComponentSize()
-                  .clip(RoundedCornerShape(12.dp))
-                  .onFocusChanged { focused = it.isFocused }
-                  .clickable { onSelectDriftMotionMode(motionMode) }
-                  .testTag("motion_mode_${motionMode.name.lowercase()}_chip"),
-              shape = RoundedCornerShape(12.dp),
-              color = containerColor,
-              border =
-                BorderStroke(
-                  width =
-                    when {
-                      focused -> 3.dp
-                      selected -> 1.5.dp
-                      else -> 1.dp
-                    },
-                  color =
-                    when {
-                      focused -> BrightGold
-                      selected -> accentColor.copy(alpha = 0.72f)
-                      else -> SubtleOutline
-                    },
-                ),
-            ) {
-              Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center,
-              ) {
-                if (selected) {
-                  Icon(
-                    imageVector = Icons.Rounded.Check,
-                    contentDescription = null,
-                    tint = accentColor,
-                    modifier = Modifier.size(16.dp),
-                  )
-                  Spacer(modifier = Modifier.width(6.dp))
-                }
-                Text(
-                  text = motionMode.label,
-                  style = MaterialTheme.typography.labelLarge,
-                  fontWeight = if (selected || focused) FontWeight.SemiBold else FontWeight.Normal,
-                  color = SoftFrostText,
-                )
-              }
-            }
-          }
-        }
-        Text(
-          text =
-            "Clockwise scales elements to 90% and glides along the outer edges; DVD Bounce scales to 80% and bounces off edges.",
-          style = MaterialTheme.typography.labelSmall,
-          color = SoftFrostText.copy(alpha = 0.78f),
-        )
-
-        // Plasma Burn-in Protection Speed Controls
-        SectionHeader(
-          icon = Icons.Rounded.Shield,
-          title = "Motion Drift Speed (Plasma Shield)",
-          tint = accentColor,
-        )
-        FlowRow(
-          horizontalArrangement = Arrangement.spacedBy(8.dp),
-          verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-          DriftIntensity.entries.forEach { mode ->
-            TvSelectableChip(
-              label = mode.label,
-              selected = settings.driftIntensity == mode,
-              accentColor = accentColor,
-              testTag = "drift_${mode.name.lowercase()}_chip",
-              onClick = { onSelectDriftIntensity(mode) },
-            )
-          }
-        }
-
-        SectionHeader(
-          icon = Icons.Rounded.Palette,
-          title = "Text Color",
-          tint = accentColor,
-        )
-        TextColorDropdown(
-          selectedOption = settings.textColorOption,
-          accentColor = accentColor,
-          onSelectOption = onSelectTextColor,
-        )
-
-        HorizontalDivider(color = SubtleOutline)
-
-        // Actions
-        FlowRow(
-          modifier = Modifier.fillMaxWidth(),
-          horizontalArrangement = Arrangement.spacedBy(10.dp),
-          verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-          var refreshFocused by remember { mutableStateOf(false) }
-          val refreshScale by animateFloatAsState(targetValue = if (refreshFocused) 1.05f else 1f, label = "refresh_scale")
-          OutlinedButton(
-            onClick = onRefreshWeather,
-            modifier =
-              Modifier.scale(refreshScale)
-                .minimumInteractiveComponentSize()
-                .onFocusChanged { refreshFocused = it.isFocused || it.hasFocus }
-                .testTag("refresh_weather_button"),
-            shape = RoundedCornerShape(14.dp),
-            border =
-              BorderStroke(
-                width = if (refreshFocused) 3.dp else 1.dp,
-                color = if (refreshFocused) BrightGold else SubtleOutline,
-              ),
-            colors =
-              ButtonDefaults.outlinedButtonColors(
-                containerColor = if (refreshFocused) lerp(DeepCardSurface, BrightGold, 0.16f) else Color.Transparent,
-              ),
-          ) {
-            Icon(imageVector = Icons.Rounded.Refresh, contentDescription = null, tint = accentColor)
-            Spacer(modifier = Modifier.width(8.dp))
-            Text("Refresh Weather", color = SoftFrostText)
-          }
-
-          var resumeFocused by remember { mutableStateOf(false) }
-          val resumeScale by animateFloatAsState(targetValue = if (resumeFocused) 1.05f else 1f, label = "resume_scale")
-          Button(
-            onClick = {
-              keyboardController?.hide()
-              onDismiss()
-            },
-            modifier =
-              Modifier.scale(resumeScale)
-                .minimumInteractiveComponentSize()
-                .onFocusChanged { resumeFocused = it.isFocused || it.hasFocus }
-                .testTag("resume_screensaver_button"),
-            shape = RoundedCornerShape(14.dp),
-            border = if (resumeFocused) BorderStroke(3.dp, BrightGold) else null,
-            colors = ButtonDefaults.buttonColors(containerColor = accentColor, contentColor = ObsidianBlack),
-          ) {
-            Icon(imageVector = Icons.Rounded.PlayArrow, contentDescription = null)
-            Spacer(modifier = Modifier.width(6.dp))
-            Text("Resume Screensaver", fontWeight = FontWeight.SemiBold)
-          }
-        }
-
-        Text(
-          text = "Forecast Data: Open-Meteo & NOAA/NWS Live Alerts",
-          style = MaterialTheme.typography.labelSmall,
-          color = SoftFrostText.copy(alpha = 0.78f),
-        )
-
-        HorizontalDivider(color = SubtleOutline)
-
-        // App Updates (very last setting at the bottom)
-        val installedVersion = normalizeVersionTag(BuildConfig.VERSION_NAME).ifBlank { "1.01" }
-        var installActionError by remember(appUpdateState) { mutableStateOf<String?>(null) }
-        val installStatus by AppUpdateManager.installStatus.collectAsStateWithLifecycle()
-        val updateCoroutineScope = rememberCoroutineScope()
-        var keepFocusInUpdates by remember { mutableStateOf(false) }
-        val checkUpdateFocusRequester = remember { FocusRequester() }
-        val downloadUpdateFocusRequester = remember { FocusRequester() }
-        val grantPermissionFocusRequester = remember { FocusRequester() }
-        val grantRelaunchFocusRequester = remember { FocusRequester() }
-        val installApkFocusRequester = remember { FocusRequester() }
-        var canInstallUnknownApps by remember {
-          mutableStateOf(AppUpdateManager.canRequestPackageInstalls(context))
-        }
-        var canAutoRelaunch by remember {
-          mutableStateOf(AppUpdateManager.canAutoRelaunchAfterUpdate(context))
-        }
-        val lifecycleOwner = LocalLifecycleOwner.current
-        DisposableEffect(lifecycleOwner, context) {
-          val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-              canInstallUnknownApps = AppUpdateManager.canRequestPackageInstalls(context)
-              canAutoRelaunch = AppUpdateManager.canAutoRelaunchAfterUpdate(context)
-            }
-          }
-          lifecycleOwner.lifecycle.addObserver(observer)
-          onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-        }
-
-        LaunchedEffect(appUpdateState, canInstallUnknownApps) {
-          if (
-            appUpdateState is AppUpdateUiState.ReadyToInstall &&
-              appUpdateState.autoLaunchInstall &&
-              canInstallUnknownApps &&
-              installStatus !is AppUpdateInstallStatus.Installing
-          ) {
-            onConsumeAutoInstallLaunch()
-            AppUpdateManager.clearInstallStatus()
-            updateCoroutineScope.launch {
-              AppUpdateManager.installApkInApp(
-                  context = context,
-                  apkFile = appUpdateState.apkFile,
-                  targetVersion = appUpdateState.latestVersion,
-                )
-                .onFailure { err ->
-                  installActionError =
-                    err.localizedMessage ?: "Unable to start Android package installer."
-                }
-            }
-          }
-        }
-
-        val permissionKey = "${canInstallUnknownApps}_$canAutoRelaunch"
-        val updateFocusPhase =
-          when (appUpdateState) {
-            is AppUpdateUiState.Idle -> "idle_$permissionKey"
-            is AppUpdateUiState.Checking -> "checking_$permissionKey"
-            is AppUpdateUiState.UpToDate -> "up_to_date_$permissionKey"
-            is AppUpdateUiState.UpdateAvailable ->
-              "available_${appUpdateState.latestVersion}_$permissionKey"
-            is AppUpdateUiState.Downloading ->
-              "downloading_${appUpdateState.latestVersion}_$permissionKey"
-            is AppUpdateUiState.ReadyToInstall ->
-              "ready_${appUpdateState.latestVersion}_$permissionKey"
-            is AppUpdateUiState.Error -> "error_$permissionKey"
-            is AppUpdateUiState.RepoNotConfigured -> "unconfigured_$permissionKey"
-          }
-
-        LaunchedEffect(updateFocusPhase, keepFocusInUpdates) {
-          if (!keepFocusInUpdates) return@LaunchedEffect
-          withFrameNanos {}
-          when (appUpdateState) {
-            is AppUpdateUiState.Checking,
-            is AppUpdateUiState.Downloading -> {
-              runCatching { checkUpdateFocusRequester.requestFocus() }
-            }
-            is AppUpdateUiState.UpdateAvailable -> {
-              runCatching { downloadUpdateFocusRequester.requestFocus() }
-              keepFocusInUpdates = false
-            }
-            is AppUpdateUiState.ReadyToInstall -> {
-              val targetRequester =
-                if (canInstallUnknownApps) installApkFocusRequester else grantPermissionFocusRequester
-              runCatching { targetRequester.requestFocus() }
-              keepFocusInUpdates = false
-            }
-            is AppUpdateUiState.Idle,
-            is AppUpdateUiState.UpToDate,
-            is AppUpdateUiState.Error,
-            is AppUpdateUiState.RepoNotConfigured -> {
-              runCatching { checkUpdateFocusRequester.requestFocus() }
-              keepFocusInUpdates = false
-            }
-          }
-        }
-
-        SectionHeader(
-          icon = Icons.Rounded.SystemUpdate,
-          title = "App Updates",
-          tint = accentColor,
-        )
         Surface(
-          modifier = Modifier.fillMaxWidth(),
-          shape = RoundedCornerShape(16.dp),
-          color = DeepCardSurface,
-          border = BorderStroke(1.dp, SubtleOutline),
+          modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 50.dp),
+          shape = RoundedCornerShape(12.dp),
+          color =
+            if (isSearchHighlighted) lerp(ElevatedSurface, BrightGold, 0.16f)
+            else ElevatedSurface.copy(alpha = 0.68f),
+          border =
+            if (isSearchHighlighted) BorderStroke(3.dp, BrightGold)
+            else BorderStroke(1.dp, SubtleOutline),
         ) {
-          Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+          Box(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 13.dp),
+            contentAlignment = Alignment.CenterStart,
           ) {
-            Text(
-              text = "Installed version: v$installedVersion",
-              style = MaterialTheme.typography.labelLarge,
-              color = SoftFrostText,
-            )
-
-            val statusLine =
-              when (appUpdateState) {
-                is AppUpdateUiState.Idle ->
-                  "Check GitHub Releases to download and install updates in-app."
-                is AppUpdateUiState.Checking ->
-                  "Checking GitHub Releases..."
-                is AppUpdateUiState.UpToDate ->
-                  "You are up to date (v${appUpdateState.currentVersion})."
-                is AppUpdateUiState.UpdateAvailable ->
-                  "New version ready: v${appUpdateState.latestVersion}"
-                is AppUpdateUiState.Downloading -> {
-                  val pct =
-                    if (appUpdateState.totalBytes > 0L) {
-                      ((appUpdateState.downloadedBytes * 100L) / appUpdateState.totalBytes)
-                        .toInt()
-                        .coerceIn(0, 100)
-                    } else {
-                      null
-                    }
-                  val dlMbText = "%.1f".format(appUpdateState.downloadedBytes / (1024f * 1024f))
-                  if (pct != null) {
-                    val totalMbText = "%.1f".format(appUpdateState.totalBytes / (1024f * 1024f))
-                    "Downloading v${appUpdateState.latestVersion}... $pct% ($dlMbText / $totalMbText MB)"
-                  } else {
-                    "Downloading v${appUpdateState.latestVersion}... $dlMbText MB"
+            BasicTextField(
+              value = citySearchState.query,
+              onValueChange = onQueryChange,
+              enabled = isSearchEditing,
+              readOnly = !isSearchEditing,
+              modifier =
+                Modifier.fillMaxWidth()
+                  .focusRequester(searchFieldFocusRequester)
+                  .onFocusChanged { focusState ->
+                    onSearchFieldFocusChange(focusState.isFocused || focusState.hasFocus)
                   }
-                }
-                is AppUpdateUiState.ReadyToInstall ->
-                  when {
-                    installStatus is AppUpdateInstallStatus.Installing ->
-                      if (canAutoRelaunch) {
-                        "Installing v${appUpdateState.latestVersion}... PlasmaSky will close briefly and relaunch."
-                      } else {
-                        "Installing v${appUpdateState.latestVersion}... PlasmaSky will close while Android finishes updating—reopen it afterward."
-                      }
-                    installStatus is AppUpdateInstallStatus.Failed ->
-                      (installStatus as AppUpdateInstallStatus.Failed).message
-                    appUpdateState.incompatibilityReason != null ->
-                      appUpdateState.incompatibilityReason
-                    canInstallUnknownApps ->
-                      "v${appUpdateState.latestVersion} downloaded and ready to install."
-                    else ->
-                      "v${appUpdateState.latestVersion} downloaded. Tap Allow Updates below to install."
-                  }
-                is AppUpdateUiState.Error ->
-                  appUpdateState.message
-                is AppUpdateUiState.RepoNotConfigured ->
-                  "In-app updates are enabled on APKs built by GitHub Actions."
-              }
-
-            val permissionHelperText =
-              listOfNotNull(
-                  if (!canInstallUnknownApps) {
-                    "Allow Updates lets PlasmaSky install releases directly from inside the app."
-                  } else {
-                    null
-                  },
-                  if (!canAutoRelaunch) {
-                    "Allow Auto-Relaunch lets PlasmaSky reopen automatically after an update instead of closing until you launch it manually."
-                  } else {
-                    null
-                  },
-                )
-                .joinToString(" ")
-                .ifBlank { null }
-
-            val receiverError = (installStatus as? AppUpdateInstallStatus.Failed)?.message
-            Text(
-              text = installActionError ?: statusLine,
-              style = MaterialTheme.typography.bodyMedium,
-              color =
-                when {
-                  installActionError != null || receiverError != null -> BrightCoral
-                  appUpdateState is AppUpdateUiState.UpdateAvailable -> BrightGold
-                  appUpdateState is AppUpdateUiState.Downloading ||
-                    installStatus is AppUpdateInstallStatus.Installing -> accentColor
-                  appUpdateState is AppUpdateUiState.ReadyToInstall ->
-                    when {
-                      appUpdateState.incompatibilityReason != null -> BrightCoral
-                      canInstallUnknownApps -> SeafoamTeal
-                      else -> BrightGold
-                    }
-                  appUpdateState is AppUpdateUiState.Error -> BrightCoral
-                  appUpdateState is AppUpdateUiState.UpToDate -> SeafoamTeal
-                  else -> MutedSlateText
-                },
-            )
-
-            if (permissionHelperText != null) {
-              Text(
-                text = permissionHelperText,
-                style = MaterialTheme.typography.bodySmall,
-                color = BrightGold,
-                modifier = Modifier.testTag("update_permissions_helper_text"),
-              )
-            }
-
-            if (appUpdateState is AppUpdateUiState.Downloading) {
-              if (appUpdateState.totalBytes > 0L) {
-                val fraction =
-                  (appUpdateState.downloadedBytes.toFloat() / appUpdateState.totalBytes.toFloat())
-                    .coerceIn(0f, 1f)
-                LinearProgressIndicator(
-                  progress = { fraction },
-                  modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape),
-                  color = accentColor,
-                  trackColor = SubtleOutline,
-                )
-              } else {
-                LinearProgressIndicator(
-                  modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape),
-                  color = accentColor,
-                  trackColor = SubtleOutline,
-                )
-              }
-            }
-
-            FlowRow(
-              horizontalArrangement = Arrangement.spacedBy(10.dp),
-              verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-              val isInstalling = installStatus is AppUpdateInstallStatus.Installing
-              val isBusy =
-                appUpdateState is AppUpdateUiState.Checking ||
-                  appUpdateState is AppUpdateUiState.Downloading
-              var checkFocused by remember { mutableStateOf(false) }
-              val checkScale by animateFloatAsState(
-                targetValue = if (checkFocused) 1.05f else 1f,
-                label = "update_check_scale",
-              )
-              OutlinedButton(
-                onClick = {
-                  if (!isBusy && !isInstalling) {
-                    keepFocusInUpdates = true
-                    installActionError = null
-                    onCheckForAppUpdate()
-                  }
-                },
-                modifier =
-                  Modifier.scale(checkScale)
-                    .minimumInteractiveComponentSize()
-                    .focusRequester(checkUpdateFocusRequester)
-                    .onFocusChanged { checkFocused = it.isFocused || it.hasFocus }
-                    .testTag("check_app_update_button"),
-                shape = RoundedCornerShape(14.dp),
-                border =
-                  BorderStroke(
-                    width = if (checkFocused) 3.dp else 1.dp,
-                    color = if (checkFocused) BrightGold else SubtleOutline,
-                  ),
-                colors =
-                  ButtonDefaults.outlinedButtonColors(
-                    containerColor =
-                      if (checkFocused) lerp(DeepCardSurface, BrightGold, 0.16f) else Color.Transparent,
-                  ),
-              ) {
-                if (isBusy) {
-                  CircularProgressIndicator(
-                    modifier = Modifier.size(16.dp),
-                    strokeWidth = 2.dp,
-                    color = accentColor,
-                  )
-                } else {
-                  Icon(
-                    imageVector = Icons.Rounded.SystemUpdate,
-                    contentDescription = null,
-                    tint = accentColor,
-                    modifier = Modifier.size(18.dp),
-                  )
-                }
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                  text =
-                    when (appUpdateState) {
-                      is AppUpdateUiState.Checking -> "Checking..."
-                      is AppUpdateUiState.Downloading -> "Downloading..."
-                      else -> "Check for Updates"
-                    },
-                  color = SoftFrostText,
-                )
-              }
-
-              if (appUpdateState is AppUpdateUiState.UpdateAvailable) {
-                var installNowFocused by remember { mutableStateOf(false) }
-                val installNowScale by animateFloatAsState(
-                  targetValue = if (installNowFocused) 1.05f else 1f,
-                  label = "download_install_scale",
-                )
-                Button(
-                  onClick = {
-                    keepFocusInUpdates = true
-                    installActionError = null
-                    onDownloadAndInstallUpdate(
-                      appUpdateState.latestVersion,
-                      appUpdateState.downloadUrl,
-                    )
-                  },
-                  modifier =
-                    Modifier.scale(installNowScale)
-                      .minimumInteractiveComponentSize()
-                      .focusRequester(downloadUpdateFocusRequester)
-                      .onFocusChanged { installNowFocused = it.isFocused || it.hasFocus }
-                      .testTag("download_install_update_button"),
-                  shape = RoundedCornerShape(14.dp),
-                  border = if (installNowFocused) BorderStroke(3.dp, BrightGold) else null,
-                  colors =
-                    ButtonDefaults.buttonColors(
-                      containerColor = BrightGold,
-                      contentColor = ObsidianBlack,
-                    ),
+                  .then(if (isSearchEditing) Modifier.testTag("city_search_input") else Modifier),
+              singleLine = true,
+              textStyle = MaterialTheme.typography.bodyLarge.copy(color = SoftFrostText),
+              cursorBrush = SolidColor(BrightGold),
+              keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+              keyboardActions = KeyboardActions(onSearch = { onSubmitSearch() }),
+              decorationBox = { innerTextField ->
+                Box(
+                  modifier = Modifier.fillMaxWidth(),
+                  contentAlignment = Alignment.CenterStart,
                 ) {
-                  Icon(
-                    imageVector = Icons.Rounded.SystemUpdate,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                  )
-                  Spacer(modifier = Modifier.width(6.dp))
-                  Text(
-                    text = "Update to v${appUpdateState.latestVersion}",
-                    fontWeight = FontWeight.SemiBold,
-                  )
-                }
-              }
-
-              if (!canInstallUnknownApps) {
-                var permFocused by remember { mutableStateOf(false) }
-                val permScale by animateFloatAsState(
-                  targetValue = if (permFocused) 1.05f else 1f,
-                  label = "perm_install_scale",
-                )
-                Button(
-                  onClick = {
-                    keepFocusInUpdates = true
-                    installActionError = null
-                    AppUpdateManager.openUnknownSourcesPermissionSettings(context).onFailure { err ->
-                      installActionError =
-                        err.localizedMessage ?: "Unable to open Install Unknown Apps settings."
-                    }
-                  },
-                  modifier =
-                    Modifier.scale(permScale)
-                      .minimumInteractiveComponentSize()
-                      .focusRequester(grantPermissionFocusRequester)
-                      .onFocusChanged { permFocused = it.isFocused || it.hasFocus }
-                      .testTag("grant_install_permission_button"),
-                  shape = RoundedCornerShape(14.dp),
-                  border = if (permFocused) BorderStroke(3.dp, BrightGold) else null,
-                  colors =
-                    ButtonDefaults.buttonColors(
-                      containerColor = BrightGold,
-                      contentColor = ObsidianBlack,
-                    ),
-                ) {
-                  Icon(
-                    imageVector = Icons.Rounded.Shield,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                  )
-                  Spacer(modifier = Modifier.width(6.dp))
-                  Text(
-                    text = "Allow Updates",
-                    fontWeight = FontWeight.SemiBold,
-                  )
-                }
-              }
-
-              if (!canAutoRelaunch) {
-                var relaunchFocused by remember { mutableStateOf(false) }
-                val relaunchScale by animateFloatAsState(
-                  targetValue = if (relaunchFocused) 1.05f else 1f,
-                  label = "perm_relaunch_scale",
-                )
-                OutlinedButton(
-                  onClick = {
-                    keepFocusInUpdates = true
-                    installActionError = null
-                    AppUpdateManager.openOverlayPermissionSettings(context).onFailure { err ->
-                      installActionError =
-                        err.localizedMessage ?: "Unable to open Display Over Other Apps settings."
-                    }
-                  },
-                  modifier =
-                    Modifier.scale(relaunchScale)
-                      .minimumInteractiveComponentSize()
-                      .focusRequester(grantRelaunchFocusRequester)
-                      .onFocusChanged { relaunchFocused = it.isFocused || it.hasFocus }
-                      .testTag("grant_relaunch_permission_button"),
-                  shape = RoundedCornerShape(14.dp),
-                  border =
-                    BorderStroke(
-                      width = if (relaunchFocused) 3.dp else 1.5.dp,
-                      color = if (relaunchFocused) BrightGold else BrightGold.copy(alpha = 0.7f),
-                    ),
-                  colors =
-                    ButtonDefaults.outlinedButtonColors(
-                      containerColor =
-                        if (relaunchFocused) lerp(DeepCardSurface, BrightGold, 0.16f) else Color.Transparent,
-                    ),
-                ) {
-                  Icon(
-                    imageVector = Icons.Rounded.Refresh,
-                    contentDescription = null,
-                    tint = BrightGold,
-                    modifier = Modifier.size(18.dp),
-                  )
-                  Spacer(modifier = Modifier.width(6.dp))
-                  Text(
-                    text = "Allow Auto-Relaunch",
-                    color = SoftFrostText,
-                    fontWeight = FontWeight.SemiBold,
-                  )
-                }
-              }
-
-              if (appUpdateState is AppUpdateUiState.ReadyToInstall && canInstallUnknownApps) {
-                  var installFocused by remember { mutableStateOf(false) }
-                  val installScale by animateFloatAsState(
-                    targetValue = if (!isInstalling && installFocused) 1.05f else 1f,
-                    label = "install_apk_scale",
-                  )
-                  Button(
-                    onClick = {
-                      if (!isInstalling) {
-                        installActionError = null
-                        AppUpdateManager.clearInstallStatus()
-                        updateCoroutineScope.launch {
-                          AppUpdateManager.installApkInApp(
-                              context = context,
-                              apkFile = appUpdateState.apkFile,
-                              targetVersion = appUpdateState.latestVersion,
-                            )
-                            .onFailure { err ->
-                              installActionError =
-                                err.localizedMessage ?: "Unable to start Android package installer."
-                            }
-                        }
-                      }
-                    },
-                    modifier =
-                      Modifier.scale(installScale)
-                        .minimumInteractiveComponentSize()
-                        .focusRequester(installApkFocusRequester)
-                        .onFocusChanged { installFocused = it.isFocused || it.hasFocus }
-                        .testTag("install_downloaded_apk_button"),
-                    shape = RoundedCornerShape(14.dp),
-                    border =
-                      when {
-                        installFocused -> BorderStroke(3.dp, BrightGold)
-                        isInstalling -> BorderStroke(1.dp, SubtleOutline)
-                        else -> null
-                      },
-                    colors =
-                      ButtonDefaults.buttonColors(
-                        containerColor = if (isInstalling) ElevatedSurface else SeafoamTeal,
-                        contentColor = if (isInstalling) SoftFrostText.copy(alpha = 0.85f) else ObsidianBlack,
-                      ),
-                  ) {
-                    if (isInstalling) {
-                      CircularProgressIndicator(
-                        modifier = Modifier.size(16.dp),
-                        strokeWidth = 2.dp,
-                        color = accentColor,
-                      )
-                    } else {
-                      Icon(
-                        imageVector = Icons.Rounded.SystemUpdate,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                      )
-                    }
-                    Spacer(modifier = Modifier.width(6.dp))
+                  if (citySearchState.query.isEmpty()) {
                     Text(
                       text =
-                        when {
-                          isInstalling -> "Installing..."
-                          appUpdateState.incompatibilityReason != null -> "Try Install Anyway"
-                          else -> "Install v${appUpdateState.latestVersion}"
-                        },
-                      fontWeight = FontWeight.SemiBold,
+                        if (isSearchEditing) "Type city or zip code..."
+                        else "Search city or zip (OK to type)",
+                      style = MaterialTheme.typography.bodyMedium,
+                      color = SoftFrostText.copy(alpha = 0.65f),
+                      maxLines = 1,
+                      overflow = TextOverflow.Ellipsis,
                     )
+                  }
+                  innerTextField()
+                }
+              },
+            )
+          }
+        }
+      }
+
+      val searchBtnScale by
+        animateFloatAsState(
+          targetValue = if (searchBtnFocused) 1.06f else 1f,
+          label = "search_btn_scale",
+        )
+      Button(
+        onClick = {
+          if (!citySearchState.isSearching) onSubmitSearch()
+        },
+        modifier =
+          Modifier.height(50.dp)
+            .scale(searchBtnScale)
+            .onFocusChanged { onSearchBtnFocusChange(it.isFocused || it.hasFocus) }
+            .testTag("city_search_button"),
+        shape = RoundedCornerShape(12.dp),
+        border = if (searchBtnFocused) BorderStroke(3.dp, BrightGold) else null,
+        colors =
+          ButtonDefaults.buttonColors(
+            containerColor = accentColor,
+            contentColor = ObsidianBlack,
+          ),
+      ) {
+        if (citySearchState.isSearching) {
+          CircularProgressIndicator(
+            modifier = Modifier.size(18.dp),
+            strokeWidth = 2.dp,
+            color = ObsidianBlack,
+          )
+        } else {
+          Icon(
+            imageVector = Icons.Rounded.Search,
+            contentDescription = "Search city or zip code",
+          )
+        }
+      }
+    }
+
+    if (citySearchState.statusMessage != null) {
+      Text(
+        text = citySearchState.statusMessage,
+        style = MaterialTheme.typography.bodySmall,
+        color = SoftFrostText,
+      )
+    }
+
+    if (citySearchState.results.isNotEmpty()) {
+      Column(
+        modifier =
+          Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(ElevatedSurface.copy(alpha = 0.72f))
+            .padding(6.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+      ) {
+        Text(
+          text = "Suggestions (press Down or Search to select)",
+          style = MaterialTheme.typography.labelSmall,
+          color = SoftFrostText.copy(alpha = 0.72f),
+          modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+        )
+        citySearchState.results.take(5).forEachIndexed { index, city ->
+          var focused by remember { mutableStateOf(false) }
+          Row(
+            modifier =
+              Modifier.fillMaxWidth()
+                .minimumInteractiveComponentSize()
+                .clip(RoundedCornerShape(10.dp))
+                .background(if (focused) lerp(ElevatedSurface, BrightGold, 0.16f) else Color.Transparent)
+                .border(
+                  width = if (focused) 3.dp else 0.dp,
+                  color = if (focused) BrightGold else Color.Transparent,
+                  shape = RoundedCornerShape(10.dp),
+                )
+                .then(if (index == 0) Modifier.focusRequester(firstResultFocusRequester) else Modifier)
+                .onFocusChanged { focused = it.isFocused }
+                .clickable { onSelectCity(city) }
+                .padding(horizontal = 12.dp, vertical = 10.dp)
+                .testTag("city_result_item"),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+          ) {
+            Text(
+              text = city.displayName,
+              style = MaterialTheme.typography.bodyMedium,
+              color = SoftFrostText,
+              modifier = Modifier.weight(1f),
+              maxLines = 1,
+              overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(text = "Save", style = MaterialTheme.typography.labelLarge, color = accentColor)
+          }
+        }
+      }
+    }
+
+    if (settings.savedLocations.isNotEmpty()) {
+      FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+      ) {
+        settings.savedLocations.forEach { saved ->
+          val isCurrent = saved.matches(settings.latitude, settings.longitude)
+          SavedLocationPill(
+            location = saved,
+            selected = isCurrent,
+            canRemove = settings.savedLocations.size > 1,
+            accentColor = accentColor,
+            onSelect = { onSelectSavedLocation(saved) },
+            onRemove = { onRemoveSavedLocation(saved) },
+          )
+        }
+      }
+    }
+
+    TvSelectableChip(
+      label = if (settings.autoRotateLocations) "Auto-Rotate Cities: ON (2 min)" else "Auto-Rotate Cities: OFF",
+      selected = settings.autoRotateLocations,
+      accentColor = accentColor,
+      leadingIcon = Icons.Rounded.Sync,
+      modifier = Modifier.fillMaxWidth(),
+      centerContent = false,
+      testTag = "auto_rotate_locations_chip",
+      onClick = { onToggleAutoRotateLocations(!settings.autoRotateLocations) },
+    )
+
+    Text(
+      text =
+        if (settings.savedLocations.size > 1) {
+          "D-pad Left / Right swaps your ${settings.savedLocations.size} saved cities • Up / Down steps the bottom bar."
+        } else {
+          "Save up to 5 locations above, then swap with D-pad Left / Right or enable Auto-Rotate."
+        },
+      style = MaterialTheme.typography.labelSmall,
+      color = SoftFrostText.copy(alpha = 0.72f),
+    )
+  }
+}
+
+@Composable
+private fun UnitsAndClockSectionCard(
+  settings: UserSettings,
+  accentColor: Color,
+  onSelectUnit: (TemperatureUnit) -> Unit,
+  onSelectWindUnit: (WindSpeedUnit) -> Unit,
+  onToggle24Hour: (Boolean) -> Unit,
+) {
+  SettingsSectionCard {
+    SectionHeader(icon = Icons.Rounded.Schedule, title = "Units & Clock", tint = accentColor)
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+      TvSelectableChip(
+        label =
+          if (settings.temperatureUnit == TemperatureUnit.FAHRENHEIT) "Temp: °F"
+          else "Temp: °C",
+        selected = true,
+        accentColor = accentColor,
+        leadingIcon = Icons.Rounded.SwapHoriz,
+        modifier = Modifier.weight(1f),
+        centerContent = true,
+        testTag = "unit_toggle_chip",
+        onClick = {
+          val next =
+            if (settings.temperatureUnit == TemperatureUnit.FAHRENHEIT) TemperatureUnit.CELSIUS
+            else TemperatureUnit.FAHRENHEIT
+          onSelectUnit(next)
+        },
+      )
+      TvSelectableChip(
+        label =
+          if (settings.windSpeedUnit == WindSpeedUnit.MPH) "Wind: mph"
+          else "Wind: kph",
+        selected = true,
+        accentColor = accentColor,
+        leadingIcon = Icons.Rounded.SwapHoriz,
+        modifier = Modifier.weight(1f),
+        centerContent = true,
+        testTag = "wind_unit_toggle_chip",
+        onClick = {
+          val next =
+            if (settings.windSpeedUnit == WindSpeedUnit.MPH) WindSpeedUnit.KPH
+            else WindSpeedUnit.MPH
+          onSelectWindUnit(next)
+        },
+      )
+      TvSelectableChip(
+        label = if (settings.use24HourClock) "24-Hour" else "12-Hour",
+        selected = true,
+        accentColor = accentColor,
+        leadingIcon = Icons.Rounded.SwapHoriz,
+        modifier = Modifier.weight(1f),
+        centerContent = true,
+        testTag = "clock_toggle_chip",
+        onClick = { onToggle24Hour(!settings.use24HourClock) },
+      )
+    }
+  }
+}
+
+@Composable
+private fun DisplayPanelsSectionCard(
+  settings: UserSettings,
+  activeAlerts: List<WeatherAlert>,
+  accentColor: Color,
+  onToggle7DayForecast: (Boolean) -> Unit,
+  onToggleSevereAlerts: (Boolean) -> Unit,
+  onToggleBottomBarTemp24h: (Boolean) -> Unit,
+  onToggleBottomBarPrecipitation: (Boolean) -> Unit,
+  onToggleBottomBarWind: (Boolean) -> Unit,
+  onToggleBottomBarAirQuality: (Boolean) -> Unit,
+) {
+  SettingsSectionCard {
+    SectionHeader(
+      icon = Icons.Rounded.DashboardCustomize,
+      title = "Display Panels & Alerts",
+      tint = accentColor,
+    )
+
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+      TvSelectableChip(
+        label = if (settings.show7DayForecast) "7-Day Forecast: ON" else "7-Day Forecast: OFF",
+        selected = settings.show7DayForecast,
+        accentColor = accentColor,
+        modifier = Modifier.weight(1f),
+        centerContent = true,
+        testTag = "toggle_7day_chip",
+        onClick = { onToggle7DayForecast(!settings.show7DayForecast) },
+      )
+      TvSelectableChip(
+        label = if (settings.showSevereWeatherAlerts) "Severe Alerts: ON" else "Severe Alerts: OFF",
+        selected = settings.showSevereWeatherAlerts,
+        accentColor = accentColor,
+        leadingIcon = Icons.Rounded.WarningAmber,
+        modifier = Modifier.weight(1f),
+        centerContent = true,
+        testTag = "toggle_severe_alerts_chip",
+        onClick = { onToggleSevereAlerts(!settings.showSevereWeatherAlerts) },
+      )
+    }
+
+    val enabledBottomBarCount =
+      listOf(
+        settings.showBottomBarTemp24h,
+        settings.showBottomBarWind,
+        settings.showBottomBarAirQuality,
+        settings.showBottomBarPrecipitation,
+      ).count { it }
+
+    Column(
+      modifier = Modifier.fillMaxWidth().testTag("bottom_bar_settings_group"),
+      verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+      ) {
+        Text(
+          text = "Bottom Bar",
+          style = MaterialTheme.typography.titleSmall,
+          fontWeight = FontWeight.SemiBold,
+          color = SoftFrostText,
+        )
+        Text(
+          text =
+            if (enabledBottomBarCount == 0) "Hidden (all off)"
+            else "$enabledBottomBarCount/4 enabled",
+          style = MaterialTheme.typography.labelSmall,
+          color = SoftFrostText.copy(alpha = 0.72f),
+        )
+      }
+
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+      ) {
+        TvSelectableChip(
+          label = if (settings.showBottomBarTemp24h) "24h Temp: ON" else "24h Temp: OFF",
+          selected = settings.showBottomBarTemp24h,
+          accentColor = accentColor,
+          modifier = Modifier.weight(1f),
+          centerContent = true,
+          testTag = "toggle_bottom_bar_temp_24h_chip",
+          onClick = { onToggleBottomBarTemp24h(!settings.showBottomBarTemp24h) },
+        )
+        TvSelectableChip(
+          label = if (settings.showBottomBarPrecipitation) "Precipitation: ON" else "Precipitation: OFF",
+          selected = settings.showBottomBarPrecipitation,
+          accentColor = accentColor,
+          modifier = Modifier.weight(1f),
+          centerContent = true,
+          testTag = "toggle_bottom_bar_precipitation_chip",
+          onClick = { onToggleBottomBarPrecipitation(!settings.showBottomBarPrecipitation) },
+        )
+      }
+
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+      ) {
+        TvSelectableChip(
+          label = if (settings.showBottomBarWind) "Wind: ON" else "Wind: OFF",
+          selected = settings.showBottomBarWind,
+          accentColor = accentColor,
+          modifier = Modifier.weight(1f),
+          centerContent = true,
+          testTag = "toggle_bottom_bar_wind_chip",
+          onClick = { onToggleBottomBarWind(!settings.showBottomBarWind) },
+        )
+        TvSelectableChip(
+          label = if (settings.showBottomBarAirQuality) "Air Quality: ON" else "Air Quality: OFF",
+          selected = settings.showBottomBarAirQuality,
+          accentColor = accentColor,
+          modifier = Modifier.weight(1f),
+          centerContent = true,
+          testTag = "toggle_bottom_bar_air_quality_chip",
+          onClick = { onToggleBottomBarAirQuality(!settings.showBottomBarAirQuality) },
+        )
+      }
+    }
+
+    if (settings.showSevereWeatherAlerts) {
+      val alertSummary =
+        if (activeAlerts.isNotEmpty()) {
+          "Active advisory for ${settings.cityName}: ${activeAlerts.joinToString(" • ") { it.event }}"
+        } else {
+          "No active severe weather alerts for ${settings.cityName}."
+        }
+      Text(
+        text = alertSummary,
+        style = MaterialTheme.typography.labelSmall,
+        color = SoftFrostText.copy(alpha = 0.78f),
+      )
+    }
+  }
+}
+
+@Composable
+private fun MotionAndShieldSectionCard(
+  settings: UserSettings,
+  accentColor: Color,
+  onSelectDriftMotionMode: (DriftMotionMode) -> Unit,
+  onSelectDriftIntensity: (DriftIntensity) -> Unit,
+) {
+  SettingsSectionCard {
+    SectionHeader(
+      icon = Icons.Rounded.OpenWith,
+      title = "Motion & Burn-In Shield",
+      tint = accentColor,
+    )
+
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+      DriftMotionMode.entries.forEach { motionMode ->
+        TvSelectableChip(
+          label = motionMode.label,
+          selected = settings.driftMotionMode == motionMode,
+          accentColor = accentColor,
+          leadingIcon = if (settings.driftMotionMode == motionMode) Icons.Rounded.Check else null,
+          modifier = Modifier.weight(1f),
+          centerContent = true,
+          testTag = "motion_mode_${motionMode.name.lowercase()}_chip",
+          onClick = { onSelectDriftMotionMode(motionMode) },
+        )
+      }
+    }
+
+    Text(
+      text =
+        "Clockwise glides along outer edges (90%); DVD Bounce scales to 80% and rebounds.",
+      style = MaterialTheme.typography.labelSmall,
+      color = SoftFrostText.copy(alpha = 0.72f),
+    )
+
+    Row(
+      verticalAlignment = Alignment.CenterVertically,
+      horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+      Icon(
+        imageVector = Icons.Rounded.Shield,
+        contentDescription = null,
+        tint = accentColor,
+        modifier = Modifier.size(16.dp),
+      )
+      Text(
+        text = "Drift Speed",
+        style = MaterialTheme.typography.titleSmall,
+        fontWeight = FontWeight.SemiBold,
+        color = SoftFrostText,
+      )
+    }
+
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+      DriftIntensity.entries.forEach { mode ->
+        TvSelectableChip(
+          label = mode.label,
+          selected = settings.driftIntensity == mode,
+          accentColor = accentColor,
+          modifier = Modifier.weight(1f),
+          centerContent = true,
+          compactPadding = true,
+          testTag = "drift_${mode.name.lowercase()}_chip",
+          onClick = { onSelectDriftIntensity(mode) },
+        )
+      }
+    }
+  }
+}
+
+@Composable
+private fun AppearanceSectionCard(
+  selectedOption: TextColorOption,
+  accentColor: Color,
+  onSelectTextColor: (TextColorOption) -> Unit,
+) {
+  SettingsSectionCard {
+    SectionHeader(
+      icon = Icons.Rounded.Palette,
+      title = "Text Color",
+      tint = accentColor,
+    )
+    TextColorDropdown(
+      selectedOption = selectedOption,
+      accentColor = accentColor,
+      onSelectOption = onSelectTextColor,
+    )
+  }
+}
+
+@Composable
+private fun QuickActionsRow(
+  accentColor: Color,
+  onRefreshWeather: () -> Unit,
+  onResumeScreensaver: () -> Unit,
+) {
+  Column(
+    modifier = Modifier.fillMaxWidth(),
+    verticalArrangement = Arrangement.spacedBy(6.dp),
+  ) {
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+      var refreshFocused by remember { mutableStateOf(false) }
+      val refreshScale by
+        animateFloatAsState(
+          targetValue = if (refreshFocused) 1.04f else 1f,
+          label = "refresh_scale",
+        )
+      OutlinedButton(
+        onClick = onRefreshWeather,
+        modifier =
+          Modifier.weight(1f)
+            .height(48.dp)
+            .scale(refreshScale)
+            .onFocusChanged { refreshFocused = it.isFocused || it.hasFocus }
+            .testTag("refresh_weather_button"),
+        shape = RoundedCornerShape(12.dp),
+        border =
+          BorderStroke(
+            width = if (refreshFocused) 3.dp else 1.dp,
+            color = if (refreshFocused) BrightGold else SubtleOutline,
+          ),
+        colors =
+          ButtonDefaults.outlinedButtonColors(
+            containerColor =
+              if (refreshFocused) lerp(DeepCardSurface, BrightGold, 0.16f)
+              else DeepCardSurface.copy(alpha = 0.72f),
+          ),
+      ) {
+        Icon(imageVector = Icons.Rounded.Refresh, contentDescription = null, tint = accentColor)
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(
+          text = "Refresh Weather",
+          color = SoftFrostText,
+          maxLines = 1,
+          overflow = TextOverflow.Ellipsis,
+        )
+      }
+
+      var resumeFocused by remember { mutableStateOf(false) }
+      val resumeScale by
+        animateFloatAsState(
+          targetValue = if (resumeFocused) 1.04f else 1f,
+          label = "resume_scale",
+        )
+      Button(
+        onClick = onResumeScreensaver,
+        modifier =
+          Modifier.weight(1f)
+            .height(48.dp)
+            .scale(resumeScale)
+            .onFocusChanged { resumeFocused = it.isFocused || it.hasFocus }
+            .testTag("resume_screensaver_button"),
+        shape = RoundedCornerShape(12.dp),
+        border = if (resumeFocused) BorderStroke(3.dp, BrightGold) else null,
+        colors =
+          ButtonDefaults.buttonColors(
+            containerColor = accentColor,
+            contentColor = ObsidianBlack,
+          ),
+      ) {
+        Icon(imageVector = Icons.Rounded.PlayArrow, contentDescription = null)
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(
+          text = "Resume Screensaver",
+          fontWeight = FontWeight.SemiBold,
+          maxLines = 1,
+          overflow = TextOverflow.Ellipsis,
+        )
+      }
+    }
+
+    Text(
+      text = "Forecast Data: Open-Meteo & NOAA/NWS Live Alerts",
+      style = MaterialTheme.typography.labelSmall,
+      color = SoftFrostText.copy(alpha = 0.68f),
+    )
+  }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun AppUpdatesSectionCard(
+  accentColor: Color,
+  appUpdateState: AppUpdateUiState,
+  onCheckForAppUpdate: () -> Unit,
+  onDownloadAndInstallUpdate: (String, String) -> Unit,
+  onConsumeAutoInstallLaunch: () -> Unit,
+) {
+  val context = LocalContext.current
+  val installedVersion = normalizeVersionTag(BuildConfig.VERSION_NAME).ifBlank { "1.01" }
+  var installActionError by remember(appUpdateState) { mutableStateOf<String?>(null) }
+  val installStatus by AppUpdateManager.installStatus.collectAsStateWithLifecycle()
+  val updateCoroutineScope = rememberCoroutineScope()
+  var keepFocusInUpdates by remember { mutableStateOf(false) }
+  val checkUpdateFocusRequester = remember { FocusRequester() }
+  val downloadUpdateFocusRequester = remember { FocusRequester() }
+  val grantPermissionFocusRequester = remember { FocusRequester() }
+  val grantRelaunchFocusRequester = remember { FocusRequester() }
+  val installApkFocusRequester = remember { FocusRequester() }
+  var canInstallUnknownApps by remember {
+    mutableStateOf(AppUpdateManager.canRequestPackageInstalls(context))
+  }
+  var canAutoRelaunch by remember {
+    mutableStateOf(AppUpdateManager.canAutoRelaunchAfterUpdate(context))
+  }
+  val lifecycleOwner = LocalLifecycleOwner.current
+  DisposableEffect(lifecycleOwner, context) {
+    val observer = LifecycleEventObserver { _, event ->
+      if (event == Lifecycle.Event.ON_RESUME) {
+        canInstallUnknownApps = AppUpdateManager.canRequestPackageInstalls(context)
+        canAutoRelaunch = AppUpdateManager.canAutoRelaunchAfterUpdate(context)
+      }
+    }
+    lifecycleOwner.lifecycle.addObserver(observer)
+    onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+  }
+
+  LaunchedEffect(appUpdateState, canInstallUnknownApps) {
+    if (
+      appUpdateState is AppUpdateUiState.ReadyToInstall &&
+        appUpdateState.autoLaunchInstall &&
+        canInstallUnknownApps &&
+        installStatus !is AppUpdateInstallStatus.Installing
+    ) {
+      onConsumeAutoInstallLaunch()
+      AppUpdateManager.clearInstallStatus()
+      updateCoroutineScope.launch {
+        AppUpdateManager.installApkInApp(
+            context = context,
+            apkFile = appUpdateState.apkFile,
+            targetVersion = appUpdateState.latestVersion,
+          )
+          .onFailure { err ->
+            installActionError =
+              err.localizedMessage ?: "Unable to start Android package installer."
+          }
+      }
+    }
+  }
+
+  val permissionKey = "${canInstallUnknownApps}_$canAutoRelaunch"
+  val updateFocusPhase =
+    when (appUpdateState) {
+      is AppUpdateUiState.Idle -> "idle_$permissionKey"
+      is AppUpdateUiState.Checking -> "checking_$permissionKey"
+      is AppUpdateUiState.UpToDate -> "up_to_date_$permissionKey"
+      is AppUpdateUiState.UpdateAvailable ->
+        "available_${appUpdateState.latestVersion}_$permissionKey"
+      is AppUpdateUiState.Downloading ->
+        "downloading_${appUpdateState.latestVersion}_$permissionKey"
+      is AppUpdateUiState.ReadyToInstall ->
+        "ready_${appUpdateState.latestVersion}_$permissionKey"
+      is AppUpdateUiState.Error -> "error_$permissionKey"
+      is AppUpdateUiState.RepoNotConfigured -> "unconfigured_$permissionKey"
+    }
+
+  LaunchedEffect(updateFocusPhase, keepFocusInUpdates) {
+    if (!keepFocusInUpdates) return@LaunchedEffect
+    withFrameNanos {}
+    when (appUpdateState) {
+      is AppUpdateUiState.Checking,
+      is AppUpdateUiState.Downloading -> {
+        runCatching { checkUpdateFocusRequester.requestFocus() }
+      }
+      is AppUpdateUiState.UpdateAvailable -> {
+        runCatching { downloadUpdateFocusRequester.requestFocus() }
+        keepFocusInUpdates = false
+      }
+      is AppUpdateUiState.ReadyToInstall -> {
+        val targetRequester =
+          if (canInstallUnknownApps) installApkFocusRequester else grantPermissionFocusRequester
+        runCatching { targetRequester.requestFocus() }
+        keepFocusInUpdates = false
+      }
+      is AppUpdateUiState.Idle,
+      is AppUpdateUiState.UpToDate,
+      is AppUpdateUiState.Error,
+      is AppUpdateUiState.RepoNotConfigured -> {
+        runCatching { checkUpdateFocusRequester.requestFocus() }
+        keepFocusInUpdates = false
+      }
+    }
+  }
+
+  SettingsSectionCard {
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      verticalAlignment = Alignment.CenterVertically,
+      horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+      SectionHeader(
+        icon = Icons.Rounded.SystemUpdate,
+        title = "App Updates",
+        tint = accentColor,
+      )
+      Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = ElevatedSurface.copy(alpha = 0.85f),
+      ) {
+        Text(
+          text = "v$installedVersion",
+          style = MaterialTheme.typography.labelMedium,
+          color = SoftFrostText.copy(alpha = 0.88f),
+          modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+        )
+      }
+    }
+
+    val statusLine =
+      when (appUpdateState) {
+        is AppUpdateUiState.Idle ->
+          "Check GitHub Releases to download and install updates in-app."
+        is AppUpdateUiState.Checking ->
+          "Checking GitHub Releases..."
+        is AppUpdateUiState.UpToDate ->
+          "You are up to date (v${appUpdateState.currentVersion})."
+        is AppUpdateUiState.UpdateAvailable ->
+          "New version ready: v${appUpdateState.latestVersion}"
+        is AppUpdateUiState.Downloading -> {
+          val pct =
+            if (appUpdateState.totalBytes > 0L) {
+              ((appUpdateState.downloadedBytes * 100L) / appUpdateState.totalBytes)
+                .toInt()
+                .coerceIn(0, 100)
+            } else {
+              null
+            }
+          val dlMbText = "%.1f".format(appUpdateState.downloadedBytes / (1024f * 1024f))
+          if (pct != null) {
+            val totalMbText = "%.1f".format(appUpdateState.totalBytes / (1024f * 1024f))
+            "Downloading v${appUpdateState.latestVersion}... $pct% ($dlMbText / $totalMbText MB)"
+          } else {
+            "Downloading v${appUpdateState.latestVersion}... $dlMbText MB"
+          }
+        }
+        is AppUpdateUiState.ReadyToInstall ->
+          when {
+            installStatus is AppUpdateInstallStatus.Installing ->
+              if (canAutoRelaunch) {
+                "Installing v${appUpdateState.latestVersion}... PlasmaSky will close briefly and relaunch."
+              } else {
+                "Installing v${appUpdateState.latestVersion}... PlasmaSky will close while Android finishes updating—reopen it afterward."
+              }
+            installStatus is AppUpdateInstallStatus.Failed ->
+              (installStatus as AppUpdateInstallStatus.Failed).message
+            appUpdateState.incompatibilityReason != null ->
+              appUpdateState.incompatibilityReason
+            canInstallUnknownApps ->
+              "v${appUpdateState.latestVersion} downloaded and ready to install."
+            else ->
+              "v${appUpdateState.latestVersion} downloaded. Tap Allow Updates below to install."
+          }
+        is AppUpdateUiState.Error ->
+          appUpdateState.message
+        is AppUpdateUiState.RepoNotConfigured ->
+          "In-app updates are enabled on APKs built by GitHub Actions."
+      }
+
+    val permissionHelperText =
+      listOfNotNull(
+          if (!canInstallUnknownApps) {
+            "Allow Updates lets PlasmaSky install releases directly from inside the app."
+          } else {
+            null
+          },
+          if (!canAutoRelaunch) {
+            "Allow Auto-Relaunch lets PlasmaSky reopen automatically after an update instead of closing until you launch it manually."
+          } else {
+            null
+          },
+        )
+        .joinToString(" ")
+        .ifBlank { null }
+
+    val receiverError = (installStatus as? AppUpdateInstallStatus.Failed)?.message
+    Text(
+      text = installActionError ?: statusLine,
+      style = MaterialTheme.typography.bodySmall,
+      color =
+        when {
+          installActionError != null || receiverError != null -> BrightCoral
+          appUpdateState is AppUpdateUiState.UpdateAvailable -> BrightGold
+          appUpdateState is AppUpdateUiState.Downloading ||
+            installStatus is AppUpdateInstallStatus.Installing -> accentColor
+          appUpdateState is AppUpdateUiState.ReadyToInstall ->
+            when {
+              appUpdateState.incompatibilityReason != null -> BrightCoral
+              canInstallUnknownApps -> SeafoamTeal
+              else -> BrightGold
+            }
+          appUpdateState is AppUpdateUiState.Error -> BrightCoral
+          appUpdateState is AppUpdateUiState.UpToDate -> SeafoamTeal
+          else -> MutedSlateText
+        },
+    )
+
+    if (permissionHelperText != null) {
+      Text(
+        text = permissionHelperText,
+        style = MaterialTheme.typography.bodySmall,
+        color = BrightGold,
+        modifier = Modifier.testTag("update_permissions_helper_text"),
+      )
+    }
+
+    if (appUpdateState is AppUpdateUiState.Downloading) {
+      if (appUpdateState.totalBytes > 0L) {
+        val fraction =
+          (appUpdateState.downloadedBytes.toFloat() / appUpdateState.totalBytes.toFloat())
+            .coerceIn(0f, 1f)
+        LinearProgressIndicator(
+          progress = { fraction },
+          modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape),
+          color = accentColor,
+          trackColor = SubtleOutline,
+        )
+      } else {
+        LinearProgressIndicator(
+          modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape),
+          color = accentColor,
+          trackColor = SubtleOutline,
+        )
+      }
+    }
+
+    FlowRow(
+      horizontalArrangement = Arrangement.spacedBy(8.dp),
+      verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+      val isInstalling = installStatus is AppUpdateInstallStatus.Installing
+      val isBusy =
+        appUpdateState is AppUpdateUiState.Checking ||
+          appUpdateState is AppUpdateUiState.Downloading
+      var checkFocused by remember { mutableStateOf(false) }
+      val checkScale by
+        animateFloatAsState(
+          targetValue = if (checkFocused) 1.05f else 1f,
+          label = "update_check_scale",
+        )
+      OutlinedButton(
+        onClick = {
+          if (!isBusy && !isInstalling) {
+            keepFocusInUpdates = true
+            installActionError = null
+            onCheckForAppUpdate()
+          }
+        },
+        modifier =
+          Modifier.height(48.dp)
+            .scale(checkScale)
+            .focusRequester(checkUpdateFocusRequester)
+            .onFocusChanged { checkFocused = it.isFocused || it.hasFocus }
+            .testTag("check_app_update_button"),
+        shape = RoundedCornerShape(12.dp),
+        border =
+          BorderStroke(
+            width = if (checkFocused) 3.dp else 1.dp,
+            color = if (checkFocused) BrightGold else SubtleOutline,
+          ),
+        colors =
+          ButtonDefaults.outlinedButtonColors(
+            containerColor =
+              if (checkFocused) lerp(DeepCardSurface, BrightGold, 0.16f) else Color.Transparent,
+          ),
+      ) {
+        if (isBusy) {
+          CircularProgressIndicator(
+            modifier = Modifier.size(16.dp),
+            strokeWidth = 2.dp,
+            color = accentColor,
+          )
+        } else {
+          Icon(
+            imageVector = Icons.Rounded.SystemUpdate,
+            contentDescription = null,
+            tint = accentColor,
+            modifier = Modifier.size(18.dp),
+          )
+        }
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(
+          text =
+            when (appUpdateState) {
+              is AppUpdateUiState.Checking -> "Checking..."
+              is AppUpdateUiState.Downloading -> "Downloading..."
+              else -> "Check for Updates"
+            },
+          color = SoftFrostText,
+        )
+      }
+
+      if (appUpdateState is AppUpdateUiState.UpdateAvailable) {
+        var installNowFocused by remember { mutableStateOf(false) }
+        val installNowScale by
+          animateFloatAsState(
+            targetValue = if (installNowFocused) 1.05f else 1f,
+            label = "download_install_scale",
+          )
+        Button(
+          onClick = {
+            keepFocusInUpdates = true
+            installActionError = null
+            onDownloadAndInstallUpdate(
+              appUpdateState.latestVersion,
+              appUpdateState.downloadUrl,
+            )
+          },
+          modifier =
+            Modifier.height(48.dp)
+              .scale(installNowScale)
+              .focusRequester(downloadUpdateFocusRequester)
+              .onFocusChanged { installNowFocused = it.isFocused || it.hasFocus }
+              .testTag("download_install_update_button"),
+          shape = RoundedCornerShape(12.dp),
+          border = if (installNowFocused) BorderStroke(3.dp, BrightGold) else null,
+          colors =
+            ButtonDefaults.buttonColors(
+              containerColor = BrightGold,
+              contentColor = ObsidianBlack,
+            ),
+        ) {
+          Icon(
+            imageVector = Icons.Rounded.SystemUpdate,
+            contentDescription = null,
+            modifier = Modifier.size(18.dp),
+          )
+          Spacer(modifier = Modifier.width(6.dp))
+          Text(
+            text = "Update to v${appUpdateState.latestVersion}",
+            fontWeight = FontWeight.SemiBold,
+          )
+        }
+      }
+
+      if (!canInstallUnknownApps) {
+        var permFocused by remember { mutableStateOf(false) }
+        val permScale by
+          animateFloatAsState(
+            targetValue = if (permFocused) 1.05f else 1f,
+            label = "perm_install_scale",
+          )
+        Button(
+          onClick = {
+            keepFocusInUpdates = true
+            installActionError = null
+            AppUpdateManager.openUnknownSourcesPermissionSettings(context).onFailure { err ->
+              installActionError =
+                err.localizedMessage ?: "Unable to open Install Unknown Apps settings."
+            }
+          },
+          modifier =
+            Modifier.height(48.dp)
+              .scale(permScale)
+              .focusRequester(grantPermissionFocusRequester)
+              .onFocusChanged { permFocused = it.isFocused || it.hasFocus }
+              .testTag("grant_install_permission_button"),
+          shape = RoundedCornerShape(12.dp),
+          border = if (permFocused) BorderStroke(3.dp, BrightGold) else null,
+          colors =
+            ButtonDefaults.buttonColors(
+              containerColor = BrightGold,
+              contentColor = ObsidianBlack,
+            ),
+        ) {
+          Icon(
+            imageVector = Icons.Rounded.Shield,
+            contentDescription = null,
+            modifier = Modifier.size(18.dp),
+          )
+          Spacer(modifier = Modifier.width(6.dp))
+          Text(
+            text = "Allow Updates",
+            fontWeight = FontWeight.SemiBold,
+          )
+        }
+      }
+
+      if (!canAutoRelaunch) {
+        var relaunchFocused by remember { mutableStateOf(false) }
+        val relaunchScale by
+          animateFloatAsState(
+            targetValue = if (relaunchFocused) 1.05f else 1f,
+            label = "perm_relaunch_scale",
+          )
+        OutlinedButton(
+          onClick = {
+            keepFocusInUpdates = true
+            installActionError = null
+            AppUpdateManager.openOverlayPermissionSettings(context).onFailure { err ->
+              installActionError =
+                err.localizedMessage ?: "Unable to open Display Over Other Apps settings."
+            }
+          },
+          modifier =
+            Modifier.height(48.dp)
+              .scale(relaunchScale)
+              .focusRequester(grantRelaunchFocusRequester)
+              .onFocusChanged { relaunchFocused = it.isFocused || it.hasFocus }
+              .testTag("grant_relaunch_permission_button"),
+          shape = RoundedCornerShape(12.dp),
+          border =
+            BorderStroke(
+              width = if (relaunchFocused) 3.dp else 1.5.dp,
+              color = if (relaunchFocused) BrightGold else BrightGold.copy(alpha = 0.7f),
+            ),
+          colors =
+            ButtonDefaults.outlinedButtonColors(
+              containerColor =
+                if (relaunchFocused) lerp(DeepCardSurface, BrightGold, 0.16f)
+                else Color.Transparent,
+            ),
+        ) {
+          Icon(
+            imageVector = Icons.Rounded.Refresh,
+            contentDescription = null,
+            tint = BrightGold,
+            modifier = Modifier.size(18.dp),
+          )
+          Spacer(modifier = Modifier.width(6.dp))
+          Text(
+            text = "Allow Auto-Relaunch",
+            color = SoftFrostText,
+            fontWeight = FontWeight.SemiBold,
+          )
+        }
+      }
+
+      if (appUpdateState is AppUpdateUiState.ReadyToInstall && canInstallUnknownApps) {
+        var installFocused by remember { mutableStateOf(false) }
+        val installScale by
+          animateFloatAsState(
+            targetValue = if (!isInstalling && installFocused) 1.05f else 1f,
+            label = "install_apk_scale",
+          )
+        Button(
+          onClick = {
+            if (!isInstalling) {
+              installActionError = null
+              AppUpdateManager.clearInstallStatus()
+              updateCoroutineScope.launch {
+                AppUpdateManager.installApkInApp(
+                    context = context,
+                    apkFile = appUpdateState.apkFile,
+                    targetVersion = appUpdateState.latestVersion,
+                  )
+                  .onFailure { err ->
+                    installActionError =
+                      err.localizedMessage ?: "Unable to start Android package installer."
                   }
               }
             }
+          },
+          modifier =
+            Modifier.height(48.dp)
+              .scale(installScale)
+              .focusRequester(installApkFocusRequester)
+              .onFocusChanged { installFocused = it.isFocused || it.hasFocus }
+              .testTag("install_downloaded_apk_button"),
+          shape = RoundedCornerShape(12.dp),
+          border =
+            when {
+              installFocused -> BorderStroke(3.dp, BrightGold)
+              isInstalling -> BorderStroke(1.dp, SubtleOutline)
+              else -> null
+            },
+          colors =
+            ButtonDefaults.buttonColors(
+              containerColor = if (isInstalling) ElevatedSurface else SeafoamTeal,
+              contentColor =
+                if (isInstalling) SoftFrostText.copy(alpha = 0.85f) else ObsidianBlack,
+            ),
+        ) {
+          if (isInstalling) {
+            CircularProgressIndicator(
+              modifier = Modifier.size(16.dp),
+              strokeWidth = 2.dp,
+              color = accentColor,
+            )
+          } else {
+            Icon(
+              imageVector = Icons.Rounded.SystemUpdate,
+              contentDescription = null,
+              modifier = Modifier.size(18.dp),
+            )
           }
+          Spacer(modifier = Modifier.width(6.dp))
+          Text(
+            text =
+              when {
+                isInstalling -> "Installing..."
+                appUpdateState.incompatibilityReason != null -> "Try Install Anyway"
+                else -> "Install v${appUpdateState.latestVersion}"
+              },
+            fontWeight = FontWeight.SemiBold,
+          )
         }
       }
     }
@@ -1413,8 +1745,8 @@ private fun SavedLocationPill(
     animateColorAsState(
       targetValue =
         when {
-          selected -> accentColor.copy(alpha = 0.20f)
-          else -> DeepCardSurface
+          selected -> accentColor.copy(alpha = 0.22f)
+          else -> ElevatedSurface.copy(alpha = 0.72f)
         },
       label = "saved_pill_bg",
     )
@@ -1443,7 +1775,7 @@ private fun SavedLocationPill(
             )
             .onFocusChanged { selectFocused = it.isFocused }
             .clickable(onClick = onSelect)
-            .padding(start = 12.dp, end = if (canRemove) 8.dp else 12.dp, top = 8.dp, bottom = 8.dp)
+            .padding(start = 12.dp, end = if (canRemove) 6.dp else 12.dp, top = 8.dp, bottom = 8.dp)
             .testTag("saved_location_chip"),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -1497,33 +1829,11 @@ private fun SectionHeader(icon: ImageVector, title: String, tint: Color) {
     horizontalArrangement = Arrangement.spacedBy(8.dp),
   ) {
     Icon(imageVector = icon, contentDescription = null, tint = tint, modifier = Modifier.size(18.dp))
-    Text(text = title, style = MaterialTheme.typography.titleMedium, color = SoftFrostText)
-  }
-}
-
-@Composable
-private fun BottomBarBulletToggle(
-  label: String,
-  selected: Boolean,
-  accentColor: Color,
-  testTag: String,
-  onClick: () -> Unit,
-) {
-  Row(
-    verticalAlignment = Alignment.CenterVertically,
-    horizontalArrangement = Arrangement.spacedBy(10.dp),
-  ) {
     Text(
-      text = "•",
+      text = title,
       style = MaterialTheme.typography.titleMedium,
-      color = if (selected) accentColor else SoftFrostText.copy(alpha = 0.65f),
-    )
-    TvSelectableChip(
-      label = label,
-      selected = selected,
-      accentColor = accentColor,
-      testTag = testTag,
-      onClick = onClick,
+      fontWeight = FontWeight.SemiBold,
+      color = SoftFrostText,
     )
   }
 }
@@ -1534,19 +1844,22 @@ private fun TvSelectableChip(
   selected: Boolean,
   accentColor: Color,
   testTag: String,
+  modifier: Modifier = Modifier,
   leadingIcon: ImageVector? = null,
+  centerContent: Boolean = false,
+  compactPadding: Boolean = false,
   onClick: () -> Unit,
 ) {
   var focused by remember { mutableStateOf(false) }
-  val scale by animateFloatAsState(targetValue = if (focused) 1.05f else 1f, label = "chip_scale")
+  val scale by animateFloatAsState(targetValue = if (focused) 1.03f else 1f, label = "chip_scale")
   val bgColor by
     animateColorAsState(
       targetValue =
         when {
-          focused && selected -> lerp(accentColor.copy(alpha = 0.22f), BrightGold, 0.18f)
+          focused && selected -> lerp(accentColor.copy(alpha = 0.24f), BrightGold, 0.18f)
           focused -> lerp(ElevatedSurface, BrightGold, 0.18f)
-          selected -> accentColor.copy(alpha = 0.22f)
-          else -> DeepCardSurface
+          selected -> accentColor.copy(alpha = 0.20f)
+          else -> ElevatedSurface.copy(alpha = 0.58f)
         },
       label = "chip_bg",
     )
@@ -1554,13 +1867,14 @@ private fun TvSelectableChip(
     when {
       focused -> BrightGold
       selected -> accentColor.copy(alpha = 0.72f)
-      else -> SubtleOutline
+      else -> SubtleOutline.copy(alpha = 0.75f)
     }
 
   Surface(
     modifier =
-      Modifier.scale(scale)
-        .minimumInteractiveComponentSize()
+      modifier
+        .scale(scale)
+        .defaultMinSize(minHeight = 48.dp)
         .clip(RoundedCornerShape(12.dp))
         .onFocusChanged { focused = it.isFocused }
         .clickable(onClick = onClick)
@@ -1579,9 +1893,15 @@ private fun TvSelectableChip(
       ),
   ) {
     Row(
-      modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+      modifier =
+        Modifier.padding(
+          horizontal = if (compactPadding) 6.dp else 12.dp,
+          vertical = 10.dp,
+        ),
       verticalAlignment = Alignment.CenterVertically,
-      horizontalArrangement = Arrangement.spacedBy(6.dp),
+      horizontalArrangement =
+        if (centerContent) Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally)
+        else Arrangement.spacedBy(6.dp),
     ) {
       if (leadingIcon != null) {
         Icon(
@@ -1598,9 +1918,13 @@ private fun TvSelectableChip(
       }
       Text(
         text = label,
-        style = MaterialTheme.typography.labelLarge,
+        style =
+          if (compactPadding) MaterialTheme.typography.labelMedium
+          else MaterialTheme.typography.labelLarge,
         fontWeight = if (focused || selected) FontWeight.SemiBold else FontWeight.Normal,
         color = if (selected || focused) SoftFrostText else SoftFrostText.copy(alpha = 0.85f),
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
       )
     }
   }
@@ -1622,7 +1946,11 @@ private fun TextColorDropdown(
 ) {
   var expanded by remember { mutableStateOf(false) }
   var focused by remember { mutableStateOf(false) }
-  val dropdownScale by animateFloatAsState(targetValue = if (focused) 1.015f else 1f, label = "dropdown_scale")
+  val dropdownScale by
+    animateFloatAsState(
+      targetValue = if (focused) 1.015f else 1f,
+      label = "dropdown_scale",
+    )
   val density = LocalDensity.current
 
   SubcomposeLayout(modifier = Modifier.fillMaxWidth()) { constraints ->
@@ -1658,7 +1986,7 @@ private fun TextColorDropdown(
         Row(
           modifier =
             Modifier.clearAndSetSemantics {}
-              .padding(horizontal = 16.dp, vertical = 14.dp),
+              .padding(horizontal = 16.dp, vertical = 12.dp),
           verticalAlignment = Alignment.CenterVertically,
         ) {
           TextColorSwatch(option = selectedOption)
@@ -1697,12 +2025,14 @@ private fun TextColorDropdown(
               Modifier.width(dropdownWidth)
                 .scale(dropdownScale)
                 .minimumInteractiveComponentSize()
-                .clip(RoundedCornerShape(14.dp))
+                .clip(RoundedCornerShape(12.dp))
                 .onFocusChanged { focused = it.isFocused }
                 .clickable { expanded = true }
                 .testTag("text_color_dropdown"),
-            shape = RoundedCornerShape(14.dp),
-            color = if (focused) lerp(DeepCardSurface, BrightGold, 0.14f) else DeepCardSurface,
+            shape = RoundedCornerShape(12.dp),
+            color =
+              if (focused) lerp(ElevatedSurface, BrightGold, 0.14f)
+              else ElevatedSurface.copy(alpha = 0.68f),
             border =
               BorderStroke(
                 width = if (focused || expanded) 3.dp else 1.dp,
@@ -1710,7 +2040,7 @@ private fun TextColorDropdown(
               ),
           ) {
             Row(
-              modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+              modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
               verticalAlignment = Alignment.CenterVertically,
               horizontalArrangement = Arrangement.SpaceBetween,
             ) {

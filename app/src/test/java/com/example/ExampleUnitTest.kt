@@ -379,4 +379,21 @@ class ExampleUnitTest {
     val locked120Hz = smoother.recordDeltaSeconds(8_333_333L)
     assertEquals(0.0083333, locked120Hz, 0.0001)
   }
+
+  @Test
+  fun `bottom bar face stepping wraps cleanly and hold timer doubles once on manual navigation`() {
+    assertEquals(1, com.example.ui.components.computeTargetFaceIndex(0, step = 1, count = 4))
+    assertEquals(0, com.example.ui.components.computeTargetFaceIndex(3, step = 1, count = 4))
+    assertEquals(3, com.example.ui.components.computeTargetFaceIndex(0, step = -1, count = 4))
+    assertEquals(1, com.example.ui.components.computeTargetFaceIndex(2, step = -1, count = 4))
+
+    assertEquals(
+      com.example.ui.components.FACE_HOLD_DURATION_MS,
+      com.example.ui.components.computeFaceHoldDurationMs(doubleNextHold = false),
+    )
+    assertEquals(
+      com.example.ui.components.FACE_HOLD_DURATION_MS * 2L,
+      com.example.ui.components.computeFaceHoldDurationMs(doubleNextHold = true),
+    )
+  }
 }
