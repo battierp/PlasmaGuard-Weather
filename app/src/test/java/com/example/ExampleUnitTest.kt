@@ -307,23 +307,6 @@ class ExampleUnitTest {
   }
 
   @Test
-  fun `package installer failure messages translate status codes cleanly`() {
-    val certConflict =
-      com.example.data.update.formatInstallFailureMessage(
-        android.content.pm.PackageInstaller.STATUS_FAILURE_CONFLICT,
-        "INSTALL_FAILED_UPDATE_INCOMPATIBLE: signatures do not match",
-      )
-    assertTrue(certConflict.contains("signing certificate", ignoreCase = true))
-
-    val cancelled =
-      com.example.data.update.formatInstallFailureMessage(
-        android.content.pm.PackageInstaller.STATUS_FAILURE_ABORTED,
-        "",
-      )
-    assertTrue(cancelled.contains("canceled", ignoreCase = true))
-  }
-
-  @Test
   fun `active weather alert reserves top banner clearance across all panel configurations`() {
     assertEquals(
       0f,

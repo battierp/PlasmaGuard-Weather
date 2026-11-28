@@ -1,4 +1,4 @@
-name: Build PlasmaSky APK
+name: Build PlasmaGuard Weather APK
 
 on:
   push:
@@ -138,7 +138,7 @@ jobs:
           VERSION_CODE=$(( GITHUB_RUN_NUMBER + 100 ))
           echo "version_name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
           echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
-          echo "Building PlasmaSky v$VERSION_NAME (versionCode=$VERSION_CODE)"
+          echo "Building PlasmaGuard Weather v$VERSION_NAME (versionCode=$VERSION_CODE)"
 
       - name: Build debug APK
         run: gradle :app:assembleDebug -PversionCode=${{ steps.version.outputs.version_code }} -PversionName=${{ steps.version.outputs.version_name }} -PgithubRepo=${{ github.repository }} --no-daemon
@@ -149,30 +149,30 @@ jobs:
       - name: Package downloadable APK
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk "dist/PlasmaSky-v${{ steps.version.outputs.version_name }}.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "dist/PlasmaGuardWeather-v${{ steps.version.outputs.version_name }}.apk"
 
       - name: Upload APK workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PlasmaSky-v${{ steps.version.outputs.version_name }}-APK
-          path: dist/PlasmaSky-v${{ steps.version.outputs.version_name }}.apk
+          name: PlasmaGuardWeather-v${{ steps.version.outputs.version_name }}-APK
+          path: dist/PlasmaGuardWeather-v${{ steps.version.outputs.version_name }}.apk
           retention-days: 30
 
       - name: Publish APK to GitHub Releases
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.version.outputs.version_name }}
-          name: PlasmaSky v${{ steps.version.outputs.version_name }}
+          name: PlasmaGuard Weather v${{ steps.version.outputs.version_name }}
           target_commitish: ${{ github.sha }}
           body: |
-            Automated Android TV / Android build of **PlasmaSky v${{ steps.version.outputs.version_name }}** (`versionCode` ${{ steps.version.outputs.version_code }}).
+            Automated Android TV / Android build of **PlasmaGuard Weather v${{ steps.version.outputs.version_name }}** (`versionCode` ${{ steps.version.outputs.version_code }}).
 
             ### Easy Install
-            Download **`PlasmaSky-v${{ steps.version.outputs.version_name }}.apk`** below and open/sideload it on your Android TV or Android device.
+            Download **`PlasmaGuardWeather-v${{ steps.version.outputs.version_name }}.apk`** below and open/sideload it on your Android TV or Android device.
             If updating from an older build signed with a different key results in `"App not installed"`, uninstall the old version once and install this release cleanly.
 
             Signing certificate (`SHA-256`, mode `${{ steps.keystore.outputs.mode }}`): `${{ steps.keystore.outputs.sha256 }}`
-          files: dist/PlasmaSky-v${{ steps.version.outputs.version_name }}.apk
+          files: dist/PlasmaGuardWeather-v${{ steps.version.outputs.version_name }}.apk
           make_latest: "true"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

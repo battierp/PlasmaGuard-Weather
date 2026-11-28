@@ -68,7 +68,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -97,7 +96,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.BuildConfig
 import com.example.data.local.MAX_SAVED_LOCATIONS
 import com.example.data.local.UserSettings
@@ -110,7 +108,6 @@ import com.example.data.model.TextColorOption
 import com.example.data.model.WeatherAlert
 import com.example.data.model.WindSpeedUnit
 import com.example.data.model.normalizeVersionTag
-import com.example.data.update.AppUpdateInstallStatus
 import com.example.data.update.AppUpdateManager
 import com.example.ui.AppUpdateUiState
 import com.example.ui.CitySearchUiState
@@ -128,7 +125,6 @@ import com.example.ui.theme.SoftAmethyst
 import com.example.ui.theme.SoftFrostText
 import com.example.ui.theme.SubtleOutline
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -275,7 +271,7 @@ fun SettingsOverlay(
         ) {
           Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(
-              text = "PlasmaSky Controls",
+              text = "PlasmaGuard Weather Controls",
               style = MaterialTheme.typography.headlineMedium,
               color = SoftFrostText,
             )
@@ -1215,26 +1211,19 @@ private fun AppUpdatesSectionCard(
   val context = LocalContext.current
   val installedVersion = normalizeVersionTag(BuildConfig.VERSION_NAME).ifBlank { "1.01" }
   var installActionError by remember(appUpdateState) { mutableStateOf<String?>(null) }
-  val installStatus by AppUpdateManager.installStatus.collectAsStateWithLifecycle()
-  val updateCoroutineScope = rememberCoroutineScope()
   var keepFocusInUpdates by remember { mutableStateOf(false) }
   val checkUpdateFocusRequester = remember { FocusRequester() }
   val downloadUpdateFocusRequester = remember { FocusRequester() }
   val grantPermissionFocusRequester = remember { FocusRequester() }
-  val grantRelaunchFocusRequester = remember { FocusRequester() }
   val installApkFocusRequester = remember { FocusRequester() }
   var canInstallUnknownApps by remember {
     mutableStateOf(AppUpdateManager.canRequestPackageInstalls(context))
-  }
-  var canAutoRelaunch by remember {
-    mutableStateOf(AppUpdateManager.canAutoRelaunchAfterUpdate(context))
   }
   val lifecycleOwner = LocalLifecycleOwner.current
   DisposableEffect(lifecycleOwner, context) {
     val observer = LifecycleEventObserver { _, event ->
       if (event == Lifecycle.Event.ON_RESUME) {
         canInstallUnknownApps = AppUpdateManager.canRequestPackageInstalls(context)
-        canAutoRelaunch = AppUpdateManager.canAutoRelaunchAfterUpdate(context)
       }
     }
     lifecycleOwner.lifecycle.addObserver(observer)
@@ -1245,39 +1234,33 @@ private fun AppUpdatesSectionCard(
     if (
       appUpdateState is AppUpdateUiState.ReadyToInstall &&
         appUpdateState.autoLaunchInstall &&
-        canInstallUnknownApps &&
-        installStatus !is AppUpdateInstallStatus.Installing
+        canInstallUnknownApps
     ) {
       onConsumeAutoInstallLaunch()
-      AppUpdateManager.clearInstallStatus()
-      updateCoroutineScope.launch {
-        AppUpdateManager.installApkInApp(
-            context = context,
-            apkFile = appUpdateState.apkFile,
-            targetVersion = appUpdateState.latestVersion,
-          )
-          .onFailure { err ->
-            installActionError =
-              err.localizedMessage ?: "Unable to start Android package installer."
-          }
-      }
+      AppUpdateManager.launchApkInstallViaIntent(
+          context = context,
+          apkFile = appUpdateState.apkFile,
+        )
+        .onFailure { err ->
+          installActionError =
+            err.localizedMessage ?: "Unable to start Android package installer."
+        }
     }
   }
 
-  val permissionKey = "${canInstallUnknownApps}_$canAutoRelaunch"
   val updateFocusPhase =
     when (appUpdateState) {
-      is AppUpdateUiState.Idle -> "idle_$permissionKey"
-      is AppUpdateUiState.Checking -> "checking_$permissionKey"
-      is AppUpdateUiState.UpToDate -> "up_to_date_$permissionKey"
+      is AppUpdateUiState.Idle -> "idle_$canInstallUnknownApps"
+      is AppUpdateUiState.Checking -> "checking_$canInstallUnknownApps"
+      is AppUpdateUiState.UpToDate -> "up_to_date_$canInstallUnknownApps"
       is AppUpdateUiState.UpdateAvailable ->
-        "available_${appUpdateState.latestVersion}_$permissionKey"
+        "available_${appUpdateState.latestVersion}_$canInstallUnknownApps"
       is AppUpdateUiState.Downloading ->
-        "downloading_${appUpdateState.latestVersion}_$permissionKey"
+        "downloading_${appUpdateState.latestVersion}_$canInstallUnknownApps"
       is AppUpdateUiState.ReadyToInstall ->
-        "ready_${appUpdateState.latestVersion}_$permissionKey"
-      is AppUpdateUiState.Error -> "error_$permissionKey"
-      is AppUpdateUiState.RepoNotConfigured -> "unconfigured_$permissionKey"
+        "ready_${appUpdateState.latestVersion}_$canInstallUnknownApps"
+      is AppUpdateUiState.Error -> "error_$canInstallUnknownApps"
+      is AppUpdateUiState.RepoNotConfigured -> "unconfigured_$canInstallUnknownApps"
     }
 
   LaunchedEffect(updateFocusPhase, keepFocusInUpdates) {
@@ -1361,14 +1344,6 @@ private fun AppUpdatesSectionCard(
         }
         is AppUpdateUiState.ReadyToInstall ->
           when {
-            installStatus is AppUpdateInstallStatus.Installing ->
-              if (canAutoRelaunch) {
-                "Installing v${appUpdateState.latestVersion}... PlasmaSky will close briefly and relaunch."
-              } else {
-                "Installing v${appUpdateState.latestVersion}... PlasmaSky will close while Android finishes updating—reopen it afterward."
-              }
-            installStatus is AppUpdateInstallStatus.Failed ->
-              (installStatus as AppUpdateInstallStatus.Failed).message
             appUpdateState.incompatibilityReason != null ->
               appUpdateState.incompatibilityReason
             canInstallUnknownApps ->
@@ -1382,32 +1357,14 @@ private fun AppUpdatesSectionCard(
           "In-app updates are enabled on APKs built by GitHub Actions."
       }
 
-    val permissionHelperText =
-      listOfNotNull(
-          if (!canInstallUnknownApps) {
-            "Allow Updates lets PlasmaSky install releases directly from inside the app."
-          } else {
-            null
-          },
-          if (!canAutoRelaunch) {
-            "Allow Auto-Relaunch lets PlasmaSky reopen automatically after an update instead of closing until you launch it manually."
-          } else {
-            null
-          },
-        )
-        .joinToString(" ")
-        .ifBlank { null }
-
-    val receiverError = (installStatus as? AppUpdateInstallStatus.Failed)?.message
     Text(
       text = installActionError ?: statusLine,
       style = MaterialTheme.typography.bodySmall,
       color =
         when {
-          installActionError != null || receiverError != null -> BrightCoral
+          installActionError != null -> BrightCoral
           appUpdateState is AppUpdateUiState.UpdateAvailable -> BrightGold
-          appUpdateState is AppUpdateUiState.Downloading ||
-            installStatus is AppUpdateInstallStatus.Installing -> accentColor
+          appUpdateState is AppUpdateUiState.Downloading -> accentColor
           appUpdateState is AppUpdateUiState.ReadyToInstall ->
             when {
               appUpdateState.incompatibilityReason != null -> BrightCoral
@@ -1420,9 +1377,9 @@ private fun AppUpdatesSectionCard(
         },
     )
 
-    if (permissionHelperText != null) {
+    if (!canInstallUnknownApps) {
       Text(
-        text = permissionHelperText,
+        text = "Allow Updates lets PlasmaGuard Weather install releases directly from inside the app.",
         style = MaterialTheme.typography.bodySmall,
         color = BrightGold,
         modifier = Modifier.testTag("update_permissions_helper_text"),
@@ -1453,7 +1410,6 @@ private fun AppUpdatesSectionCard(
       horizontalArrangement = Arrangement.spacedBy(8.dp),
       verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-      val isInstalling = installStatus is AppUpdateInstallStatus.Installing
       val isBusy =
         appUpdateState is AppUpdateUiState.Checking ||
           appUpdateState is AppUpdateUiState.Downloading
@@ -1465,7 +1421,7 @@ private fun AppUpdatesSectionCard(
         )
       OutlinedButton(
         onClick = {
-          if (!isBusy && !isInstalling) {
+          if (!isBusy) {
             keepFocusInUpdates = true
             installActionError = null
             onCheckForAppUpdate()
@@ -1601,80 +1557,24 @@ private fun AppUpdatesSectionCard(
         }
       }
 
-      if (!canAutoRelaunch) {
-        var relaunchFocused by remember { mutableStateOf(false) }
-        val relaunchScale by
-          animateFloatAsState(
-            targetValue = if (relaunchFocused) 1.05f else 1f,
-            label = "perm_relaunch_scale",
-          )
-        OutlinedButton(
-          onClick = {
-            keepFocusInUpdates = true
-            installActionError = null
-            AppUpdateManager.openOverlayPermissionSettings(context).onFailure { err ->
-              installActionError =
-                err.localizedMessage ?: "Unable to open Display Over Other Apps settings."
-            }
-          },
-          modifier =
-            Modifier.height(48.dp)
-              .scale(relaunchScale)
-              .focusRequester(grantRelaunchFocusRequester)
-              .onFocusChanged { relaunchFocused = it.isFocused || it.hasFocus }
-              .testTag("grant_relaunch_permission_button"),
-          shape = RoundedCornerShape(12.dp),
-          border =
-            BorderStroke(
-              width = if (relaunchFocused) 3.dp else 1.5.dp,
-              color = if (relaunchFocused) BrightGold else BrightGold.copy(alpha = 0.7f),
-            ),
-          colors =
-            ButtonDefaults.outlinedButtonColors(
-              containerColor =
-                if (relaunchFocused) lerp(DeepCardSurface, BrightGold, 0.16f)
-                else Color.Transparent,
-            ),
-        ) {
-          Icon(
-            imageVector = Icons.Rounded.Refresh,
-            contentDescription = null,
-            tint = BrightGold,
-            modifier = Modifier.size(18.dp),
-          )
-          Spacer(modifier = Modifier.width(6.dp))
-          Text(
-            text = "Allow Auto-Relaunch",
-            color = SoftFrostText,
-            fontWeight = FontWeight.SemiBold,
-          )
-        }
-      }
-
       if (appUpdateState is AppUpdateUiState.ReadyToInstall && canInstallUnknownApps) {
         var installFocused by remember { mutableStateOf(false) }
         val installScale by
           animateFloatAsState(
-            targetValue = if (!isInstalling && installFocused) 1.05f else 1f,
+            targetValue = if (installFocused) 1.05f else 1f,
             label = "install_apk_scale",
           )
         Button(
           onClick = {
-            if (!isInstalling) {
-              installActionError = null
-              AppUpdateManager.clearInstallStatus()
-              updateCoroutineScope.launch {
-                AppUpdateManager.installApkInApp(
-                    context = context,
-                    apkFile = appUpdateState.apkFile,
-                    targetVersion = appUpdateState.latestVersion,
-                  )
-                  .onFailure { err ->
-                    installActionError =
-                      err.localizedMessage ?: "Unable to start Android package installer."
-                  }
+            installActionError = null
+            AppUpdateManager.launchApkInstallViaIntent(
+                context = context,
+                apkFile = appUpdateState.apkFile,
+              )
+              .onFailure { err ->
+                installActionError =
+                  err.localizedMessage ?: "Unable to start Android package installer."
               }
-            }
           },
           modifier =
             Modifier.height(48.dp)
@@ -1683,40 +1583,23 @@ private fun AppUpdatesSectionCard(
               .onFocusChanged { installFocused = it.isFocused || it.hasFocus }
               .testTag("install_downloaded_apk_button"),
           shape = RoundedCornerShape(12.dp),
-          border =
-            when {
-              installFocused -> BorderStroke(3.dp, BrightGold)
-              isInstalling -> BorderStroke(1.dp, SubtleOutline)
-              else -> null
-            },
+          border = if (installFocused) BorderStroke(3.dp, BrightGold) else null,
           colors =
             ButtonDefaults.buttonColors(
-              containerColor = if (isInstalling) ElevatedSurface else SeafoamTeal,
-              contentColor =
-                if (isInstalling) SoftFrostText.copy(alpha = 0.85f) else ObsidianBlack,
+              containerColor = SeafoamTeal,
+              contentColor = ObsidianBlack,
             ),
         ) {
-          if (isInstalling) {
-            CircularProgressIndicator(
-              modifier = Modifier.size(16.dp),
-              strokeWidth = 2.dp,
-              color = accentColor,
-            )
-          } else {
-            Icon(
-              imageVector = Icons.Rounded.SystemUpdate,
-              contentDescription = null,
-              modifier = Modifier.size(18.dp),
-            )
-          }
+          Icon(
+            imageVector = Icons.Rounded.SystemUpdate,
+            contentDescription = null,
+            modifier = Modifier.size(18.dp),
+          )
           Spacer(modifier = Modifier.width(6.dp))
           Text(
             text =
-              when {
-                isInstalling -> "Installing..."
-                appUpdateState.incompatibilityReason != null -> "Try Install Anyway"
-                else -> "Install v${appUpdateState.latestVersion}"
-              },
+              if (appUpdateState.incompatibilityReason != null) "Try Install Anyway"
+              else "Install v${appUpdateState.latestVersion}",
             fontWeight = FontWeight.SemiBold,
           )
         }

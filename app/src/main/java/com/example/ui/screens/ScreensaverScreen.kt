@@ -746,7 +746,7 @@ private fun TvPreviewPhoneStage(
         )
         Column {
           Text(
-            text = "PlasmaSky TV Preview",
+            text = "PlasmaGuard Weather TV Preview",
             style = MaterialTheme.typography.titleMedium,
             color = SoftFrostText,
           )
@@ -859,7 +859,7 @@ private fun TvPreviewPhoneStage(
         )
         Text(
           text =
-            "This emulator runs a phone profile, so PlasmaSky displays the true 16:9 Android TV screensaver above. On an Android TV or System Screensaver (DreamService), it fills the entire display automatically.",
+            "This emulator runs a phone profile, so PlasmaGuard Weather displays the true 16:9 Android TV screensaver above. On an Android TV or System Screensaver (DreamService), it fills the entire display automatically.",
           style = MaterialTheme.typography.bodyMedium,
           color = MutedSlateText,
         )

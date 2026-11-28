@@ -40,7 +40,7 @@ class AppUpdateUiRobolectricTest {
         AppUpdateUiState.UpdateAvailable(
           currentVersion = "1.06",
           latestVersion = "1.07",
-          downloadUrl = "https://github.com/example/repo/releases/download/v1.07/PlasmaSky-v1.07.apk",
+          downloadUrl = "https://github.com/example/repo/releases/download/v1.07/PlasmaGuardWeather-v1.07.apk",
         )
       )
 
@@ -185,7 +185,7 @@ class AppUpdateUiRobolectricTest {
       AppUpdateUiState.UpdateAvailable(
         currentVersion = "1.06",
         latestVersion = "1.07",
-        downloadUrl = "https://github.com/example/repo/releases/download/v1.07/PlasmaSky-v1.07.apk",
+        downloadUrl = "https://github.com/example/repo/releases/download/v1.07/PlasmaGuardWeather-v1.07.apk",
       )
     composeTestRule.waitForIdle()
 
@@ -195,10 +195,9 @@ class AppUpdateUiRobolectricTest {
   }
 
   @Test
-  fun `permission helper text and shortcuts adapt across all four permission states and vanish when both are granted`() {
+  fun `permission helper text and Allow Updates shortcut vanish when unknown sources permission is granted`() {
     val context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
     org.robolectric.Shadows.shadowOf(context.packageManager).setCanRequestPackageInstalls(false)
-    org.robolectric.shadows.ShadowSettings.setCanDrawOverlays(false)
 
     lateinit var registry: androidx.lifecycle.LifecycleRegistry
     val lifecycleOwner =
@@ -249,28 +248,21 @@ class AppUpdateUiRobolectricTest {
       }
     }
 
-    val updatesSentence = "Allow Updates lets PlasmaSky install releases directly from inside the app."
-    val relaunchSentence =
-      "Allow Auto-Relaunch lets PlasmaSky reopen automatically after an update instead of closing until you launch it manually."
+    val updatesSentence = "Allow Updates lets PlasmaGuard Weather install releases directly from inside the app."
 
-    // 1. Neither permission granted: both helper sentences and both buttons visible
+    // 1. Permission missing: helper sentence and Allow Updates button visible; no auto-relaunch UI
     composeTestRule.waitForIdle()
     val helperNode = composeTestRule.onNodeWithTag("update_permissions_helper_text")
     helperNode.performScrollTo()
     helperNode.assertIsDisplayed()
-    composeTestRule
-      .onNodeWithText("$updatesSentence $relaunchSentence")
-      .assertIsDisplayed()
+    composeTestRule.onNodeWithText(updatesSentence).assertIsDisplayed()
     val updatesBtn = composeTestRule.onNodeWithTag("grant_install_permission_button")
     updatesBtn.performScrollTo()
     updatesBtn.assertIsDisplayed()
     composeTestRule.onNodeWithText("Allow Updates").assertIsDisplayed()
-    val relaunchBtn = composeTestRule.onNodeWithTag("grant_relaunch_permission_button")
-    relaunchBtn.performScrollTo()
-    relaunchBtn.assertIsDisplayed()
-    composeTestRule.onNodeWithText("Allow Auto-Relaunch").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("grant_relaunch_permission_button").assertDoesNotExist()
 
-    // 2. Updates granted, Auto-Relaunch still missing: only relaunch sentence & button visible
+    // 2. Permission granted: helper text and Allow Updates button disappear cleanly
     org.robolectric.Shadows.shadowOf(context.packageManager).setCanRequestPackageInstalls(true)
     composeTestRule.runOnUiThread {
       registry.handleLifecycleEvent(androidx.lifecycle.Lifecycle.Event.ON_PAUSE)
@@ -278,81 +270,18 @@ class AppUpdateUiRobolectricTest {
     }
     composeTestRule.waitForIdle()
     composeTestRule.onNodeWithTag("grant_install_permission_button").assertDoesNotExist()
-    composeTestRule.onNodeWithTag("grant_relaunch_permission_button").assertIsDisplayed()
-    composeTestRule.onNodeWithText(relaunchSentence).assertIsDisplayed()
-
-    // 3. Auto-Relaunch granted, Updates missing: only updates sentence & button visible
-    org.robolectric.Shadows.shadowOf(context.packageManager).setCanRequestPackageInstalls(false)
-    org.robolectric.shadows.ShadowSettings.setCanDrawOverlays(true)
-    composeTestRule.runOnUiThread {
-      registry.handleLifecycleEvent(androidx.lifecycle.Lifecycle.Event.ON_PAUSE)
-      registry.handleLifecycleEvent(androidx.lifecycle.Lifecycle.Event.ON_RESUME)
-    }
-    composeTestRule.waitForIdle()
-    composeTestRule.onNodeWithTag("grant_install_permission_button").assertIsDisplayed()
-    composeTestRule.onNodeWithTag("grant_relaunch_permission_button").assertDoesNotExist()
-    composeTestRule.onNodeWithText(updatesSentence).assertIsDisplayed()
-
-    // 4. Both granted: helper text and both permission buttons disappear completely
-    org.robolectric.Shadows.shadowOf(context.packageManager).setCanRequestPackageInstalls(true)
-    composeTestRule.runOnUiThread {
-      registry.handleLifecycleEvent(androidx.lifecycle.Lifecycle.Event.ON_PAUSE)
-      registry.handleLifecycleEvent(androidx.lifecycle.Lifecycle.Event.ON_RESUME)
-    }
-    composeTestRule.waitForIdle()
-    composeTestRule.onNodeWithTag("grant_install_permission_button").assertDoesNotExist()
-    composeTestRule.onNodeWithTag("grant_relaunch_permission_button").assertDoesNotExist()
     composeTestRule.onNodeWithTag("update_permissions_helper_text").assertDoesNotExist()
   }
 
   @Test
-  fun `package replaced receiver launches MainActivity only for valid non-expired in-app updates`() {
+  fun `clicking install launches system package installer FileProvider intent`() {
     val app = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.app.Application>()
-    val receiver = com.example.data.update.AppPackageReplacedReceiver()
+    org.robolectric.Shadows.shadowOf(app.packageManager).setCanRequestPackageInstalls(true)
 
-    // Unrelated update (no pending marker) must not launch MainActivity
-    com.example.data.update.AppUpdateManager.clearPendingUpdateRelaunch(app)
-    receiver.onReceive(app, android.content.Intent(android.content.Intent.ACTION_MY_PACKAGE_REPLACED))
-    org.junit.Assert.assertNull(org.robolectric.Shadows.shadowOf(app).nextStartedActivity)
-
-    // Expired marker (>10 min) must not launch MainActivity
-    com.example.data.update.AppUpdateManager.markPendingUpdateRelaunch(
-      context = app,
-      targetVersion = "1.12",
-      nowMs = System.currentTimeMillis() - (com.example.data.update.AppUpdateManager.PENDING_RELAUNCH_TTL_MS + 5_000L),
-    )
-    receiver.onReceive(app, android.content.Intent(android.content.Intent.ACTION_MY_PACKAGE_REPLACED))
-    org.junit.Assert.assertNull(org.robolectric.Shadows.shadowOf(app).nextStartedActivity)
-
-    // Valid recent update marker triggers one-shot relaunch of MainActivity with version extra
-    com.example.data.update.AppUpdateManager.markPendingUpdateRelaunch(
-      context = app,
-      targetVersion = "1.12",
-    )
-    receiver.onReceive(app, android.content.Intent(android.content.Intent.ACTION_MY_PACKAGE_REPLACED))
-    val launched = org.robolectric.Shadows.shadowOf(app).nextStartedActivity
-    org.junit.Assert.assertNotNull(launched)
-    org.junit.Assert.assertEquals(MainActivity::class.java.name, launched.component?.className)
-    org.junit.Assert.assertEquals(
-      "1.12",
-      launched.getStringExtra(com.example.data.update.AppUpdateManager.EXTRA_RELAUNCHED_FROM_UPDATE_VERSION),
-    )
-
-    // Subsequent duplicate broadcast must not launch again (one-shot consumption)
-    receiver.onReceive(app, android.content.Intent(android.content.Intent.ACTION_MY_PACKAGE_REPLACED))
-    org.junit.Assert.assertNull(org.robolectric.Shadows.shadowOf(app).nextStartedActivity)
-  }
-
-  @Test
-  fun `install button displays Installing and becomes a no-op while install is in progress`() {
-    val context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
-    org.robolectric.Shadows.shadowOf(context.packageManager).setCanRequestPackageInstalls(true)
-    val tempApk = File.createTempFile("installing_state_test", ".apk")
+    val updatesDir = File(app.cacheDir, "updates").apply { mkdirs() }
+    val tempApk = File(updatesDir, "PlasmaGuardWeather-v1.14.apk")
     try {
       tempApk.writeBytes(byteArrayOf(0x50, 0x4B, 0x03, 0x04))
-      com.example.data.update.AppUpdateManager.reportInstallStatus(
-        com.example.data.update.AppUpdateInstallStatus.Installing
-      )
 
       composeTestRule.setContent {
         PlasmaSkyTheme {
@@ -399,26 +328,26 @@ class AppUpdateUiRobolectricTest {
       val installButton = composeTestRule.onNodeWithTag("install_downloaded_apk_button")
       installButton.performScrollTo()
       installButton.assertIsDisplayed()
-      composeTestRule.onNodeWithText("Installing...").assertIsDisplayed()
-      composeTestRule.onNodeWithText("Install v1.14").assertDoesNotExist()
+      composeTestRule.onNodeWithText("Install v1.14").assertIsDisplayed()
 
-      // Clicking while Installing is a safe no-op and keeps Installing status intact
       installButton.performClick()
       composeTestRule.waitForIdle()
-      org.junit.Assert.assertEquals(
-        com.example.data.update.AppUpdateInstallStatus.Installing,
-        com.example.data.update.AppUpdateManager.installStatus.value,
-      )
-      composeTestRule.onNodeWithText("Installing...").assertIsDisplayed()
 
-      // If install is canceled/fails, button reverts to Install v1.14 so the user can retry
-      com.example.data.update.AppUpdateManager.reportInstallStatus(
-        com.example.data.update.AppUpdateInstallStatus.Failed("Installation was canceled.")
+      val started = org.robolectric.Shadows.shadowOf(app).nextStartedActivity
+      org.junit.Assert.assertNotNull(started)
+      org.junit.Assert.assertEquals(android.content.Intent.ACTION_VIEW, started.action)
+      org.junit.Assert.assertEquals(
+        "application/vnd.android.package-archive",
+        started.type,
       )
-      composeTestRule.waitForIdle()
-      composeTestRule.onNodeWithText("Install v1.14").assertIsDisplayed()
+      org.junit.Assert.assertTrue(
+        (started.flags and android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) != 0
+      )
+      org.junit.Assert.assertEquals(
+        "content://${BuildConfig.APPLICATION_ID}.fileprovider/updates/PlasmaGuardWeather-v1.14.apk",
+        started.dataString,
+      )
     } finally {
-      com.example.data.update.AppUpdateManager.clearInstallStatus()
       tempApk.delete()
     }
   }

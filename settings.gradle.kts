@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "PlasmaSky"
+rootProject.name = "PlasmaGuard Weather"
 
 include(":app")

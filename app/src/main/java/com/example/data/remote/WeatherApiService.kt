@@ -66,7 +66,7 @@ interface IpGeoApi {
 interface NwsAlertApi {
   @Headers(
     "Accept: application/geo+json",
-    "User-Agent: PlasmaSky/1.0 (Weather Screensaver)",
+    "User-Agent: PlasmaGuardWeather/1.0 (Weather Screensaver)",
   )
   @GET("alerts/active")
   suspend fun getActiveAlerts(@Query("point") point: String): NwsAlertsResponseDto
@@ -75,7 +75,7 @@ interface NwsAlertApi {
 interface GitHubReleasesApi {
   @Headers(
     "Accept: application/vnd.github+json",
-    "User-Agent: PlasmaSky-AndroidTV",
+    "User-Agent: PlasmaGuardWeather-AndroidTV",
   )
   @GET("repos/{owner}/{repo}/releases/latest")
   suspend fun getLatestRelease(

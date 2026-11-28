@@ -407,7 +407,6 @@ class ScreensaverViewModel(application: Application) : AndroidViewModel(applicat
       return
     }
 
-    AppUpdateManager.clearInstallStatus()
     updateCheckJob?.cancel()
     updateCheckJob =
       viewModelScope.launch {
@@ -449,7 +448,6 @@ class ScreensaverViewModel(application: Application) : AndroidViewModel(applicat
     }
     if (_appUpdateState.value is AppUpdateUiState.Downloading) return
 
-    AppUpdateManager.clearInstallStatus()
     updateCheckJob?.cancel()
     updateCheckJob =
       viewModelScope.launch {
